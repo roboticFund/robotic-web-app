@@ -1,0 +1,41 @@
+{
+  "dev": {
+    "awscloudformation": {
+      "AuthRoleName": "amplify-roboticwebapp-dev-84438-authRole",
+      "UnauthRoleArn": "arn:aws:iam::302826945104:role/amplify-roboticwebapp-dev-84438-unauthRole",
+      "AuthRoleArn": "arn:aws:iam::302826945104:role/amplify-roboticwebapp-dev-84438-authRole",
+      "Region": "ap-southeast-2",
+      "DeploymentBucketName": "amplify-roboticwebapp-dev-84438-deployment",
+      "UnauthRoleName": "amplify-roboticwebapp-dev-84438-unauthRole",
+      "StackName": "amplify-roboticwebapp-dev-84438",
+      "StackId": "arn:aws:cloudformation:ap-southeast-2:302826945104:stack/amplify-roboticwebapp-dev-84438/a71d7280-9937-11ee-b740-069c28ce2ae1",
+      "AmplifyAppId": "d8r34wotzilx7"
+    },
+    "categories": {
+      "auth": {
+        "roboticwebappd40f50aa": {
+          "userPoolId": "ap-southeast-2_nDWhXBRk5",
+          "userPoolName": "roboticfundwebappde2f93ce_userpool_de2f93ce-dev",
+          "webClientId": "4udqsrbrhjcphjtpgiit7qovmr",
+          "nativeClientId": "2m8etn2ormmfkj67e9geg37085",
+          "identityPoolId": "ap-southeast-2:da03fc7e-f80d-48b5-8fbc-b1a9dab88532",
+          "identityPoolName": "roboticfundwebappde2f93ce_identitypool_de2f93ce__dev",
+          "allowUnauthenticatedIdentities": false,
+          "authRoleArn": "arn:aws:iam::302826945104:role/amplify-roboticfundwebapp-dev-210448-authRole",
+          "authRoleName": "amplify-roboticfundwebapp-dev-210448-authRole",
+          "unauthRoleArn": "arn:aws:iam::302826945104:role/amplify-roboticfundwebapp-dev-210448-unauthRole",
+          "unauthRoleName": "amplify-roboticfundwebapp-dev-210448-unauthRole"
+        }
+      },
+      "hosting": {
+        "amplifyhosting": {
+          "appId": "d8r34wotzilx7",
+          "type": "manual"
+        }
+      },
+      "api": {
+        "roboticwebapp": {}
+      }
+    }
+  }
+}

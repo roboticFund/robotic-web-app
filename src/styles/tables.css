@@ -1,0 +1,104 @@
+/* styles/tables.css */
+.responsive-table {
+    overflow-x: auto;
+  }
+  
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+    overflow: hidden;
+    table-layout: auto;
+  }
+  
+  thead {
+    background-color: #3498db;
+    color: #fff;
+  }
+  
+  th {
+    font-weight: bold; /* Make the table header cells bold */
+  }
+
+  th, td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+  }
+  
+  .action-icon {
+    cursor: pointer;
+    margin-right: 10px;
+    font-size: 18px;
+    color: #3498db;
+    transition: color 0.3s ease;
+  }
+  .action-icons {
+    display: flex;
+    justify-content: space-between;
+  }
+  
+  .edit-icon:hover{
+    color: transparent;
+    text-shadow: 0 0 0 #3498db;
+
+  }
+  .delete-icon:hover {
+    color: transparent;
+    text-shadow: 0 0 0 #e74c3c;
+  }
+  .save-icon:hover {
+    color: transparent;
+    text-shadow: 0 0 0 #34db58;
+  }
+  .form-container {
+    display: flex;
+    margin-bottom: 20px;
+  }
+  .form-input {
+    flex: 1;
+    padding: 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    margin-right: 10px;
+  }
+  .form-button {
+    padding: 12px 16px;
+    background-color: #3498db;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+    font-weight: bold;
+  }
+  
+  .form-button:hover {
+    background-color: #2980b9; /* Change the color to your desired hover color */
+  }
+  .error-message {
+    color: #fff; /* White text color for better contrast */
+    background-color: #e74c3c; /* Red background color */
+    margin-top: 10px;
+    padding: 10px;
+    border-radius: 8px;
+    box-shadow: 0 0 10px rgba(231, 76, 60, 0.7); /* Subtle box-shadow effect */
+  
+    /* Additional styles for a modern look (customize as needed) */
+    font-size: 16px;
+    text-align: center;
+  }
+  
+  /* Optional: Add a transition effect for a smoother appearance */
+  .error-message-transition {
+    opacity: 0;
+    transition: opacity 0.5s ease;
+  }
+  
+  .error-message-transition.show {
+    opacity: 1;
+  }
+
+  

@@ -1,0 +1,150 @@
+{
+  "api": {
+    "roboticwebapp": {
+      "dependsOn": [
+        {
+          "attributes": [
+            "UserPoolId"
+          ],
+          "category": "auth",
+          "resourceName": "roboticwebappd40f50aa"
+        }
+      ],
+      "output": {
+        "authConfig": {
+          "additionalAuthenticationProviders": [],
+          "defaultAuthentication": {
+            "authenticationType": "AMAZON_COGNITO_USER_POOLS",
+            "userPoolConfig": {
+              "userPoolId": "authroboticwebappd40f50aa"
+            }
+          }
+        }
+      },
+      "providerPlugin": "awscloudformation",
+      "service": "AppSync"
+    }
+  },
+  "auth": {
+    "roboticwebappd40f50aa": {
+      "customAuth": false,
+      "dependsOn": [],
+      "providerPlugin": "awscloudformation",
+      "service": "Cognito",
+      "serviceType": "imported"
+    }
+  },
+  "hosting": {
+    "amplifyhosting": {
+      "providerPlugin": "awscloudformation",
+      "service": "amplifyhosting",
+      "type": "manual"
+    }
+  },
+  "parameters": {
+    "AMPLIFY_auth_roboticwebappd40f50aa_allowUnauthenticatedIdentities": {
+      "usedBy": [
+        {
+          "category": "auth",
+          "resourceName": "roboticwebappd40f50aa"
+        }
+      ]
+    },
+    "AMPLIFY_auth_roboticwebappd40f50aa_authRoleArn": {
+      "usedBy": [
+        {
+          "category": "auth",
+          "resourceName": "roboticwebappd40f50aa"
+        }
+      ]
+    },
+    "AMPLIFY_auth_roboticwebappd40f50aa_authRoleName": {
+      "usedBy": [
+        {
+          "category": "auth",
+          "resourceName": "roboticwebappd40f50aa"
+        }
+      ]
+    },
+    "AMPLIFY_auth_roboticwebappd40f50aa_identityPoolId": {
+      "usedBy": [
+        {
+          "category": "auth",
+          "resourceName": "roboticwebappd40f50aa"
+        }
+      ]
+    },
+    "AMPLIFY_auth_roboticwebappd40f50aa_identityPoolName": {
+      "usedBy": [
+        {
+          "category": "auth",
+          "resourceName": "roboticwebappd40f50aa"
+        }
+      ]
+    },
+    "AMPLIFY_auth_roboticwebappd40f50aa_nativeClientId": {
+      "usedBy": [
+        {
+          "category": "auth",
+          "resourceName": "roboticwebappd40f50aa"
+        }
+      ]
+    },
+    "AMPLIFY_auth_roboticwebappd40f50aa_unauthRoleArn": {
+      "usedBy": [
+        {
+          "category": "auth",
+          "resourceName": "roboticwebappd40f50aa"
+        }
+      ]
+    },
+    "AMPLIFY_auth_roboticwebappd40f50aa_unauthRoleName": {
+      "usedBy": [
+        {
+          "category": "auth",
+          "resourceName": "roboticwebappd40f50aa"
+        }
+      ]
+    },
+    "AMPLIFY_auth_roboticwebappd40f50aa_userPoolId": {
+      "usedBy": [
+        {
+          "category": "auth",
+          "resourceName": "roboticwebappd40f50aa"
+        }
+      ]
+    },
+    "AMPLIFY_auth_roboticwebappd40f50aa_userPoolName": {
+      "usedBy": [
+        {
+          "category": "auth",
+          "resourceName": "roboticwebappd40f50aa"
+        }
+      ]
+    },
+    "AMPLIFY_auth_roboticwebappd40f50aa_webClientId": {
+      "usedBy": [
+        {
+          "category": "auth",
+          "resourceName": "roboticwebappd40f50aa"
+        }
+      ]
+    },
+    "AMPLIFY_hosting_amplifyhosting_appId": {
+      "usedBy": [
+        {
+          "category": "hosting",
+          "resourceName": "amplifyhosting"
+        }
+      ]
+    },
+    "AMPLIFY_hosting_amplifyhosting_type": {
+      "usedBy": [
+        {
+          "category": "hosting",
+          "resourceName": "amplifyhosting"
+        }
+      ]
+    }
+  }
+}
