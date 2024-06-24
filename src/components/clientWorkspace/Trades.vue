@@ -275,7 +275,7 @@ onMounted(async () => {
 
 <template>
 
-<div id ="app">
+<div id ="trades">
   
       <div>
     <ul>

@@ -131,7 +131,7 @@ onMounted(async () => {
 
 <template>
 
-<div id ="app">
+<div id ="a">
         <div v-if="showLoginBrokerExistsMessage" class="error-message">
           {{errorMessage}}
         </div><br>

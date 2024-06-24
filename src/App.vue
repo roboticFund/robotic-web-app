@@ -69,13 +69,16 @@ onMounted(() => {
 </script>
 
 <template>
-  <header>
-    <Header />
-  </header>
-
-  <main>
-    <router-view />
-  </main>
+  <div class="container">
+      <header>
+        <Header />
+      </header>
+    </div>
+    <div class="container">
+      <main>
+        <router-view />
+      </main>
+    </div>
 </template>
 
 <style scoped>

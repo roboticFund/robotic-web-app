@@ -19,6 +19,7 @@ const handleSignOutEvent = (data) => {
 </script>
 
 <template>
+  <img alt="RoboticFund logo" class="logo" src="../assets/accent2.png" width="450" height="100" />
   <nav>
     <router-link to="/">Home</router-link> |
     <router-link to="/about">About</router-link> |
@@ -30,7 +31,6 @@ const handleSignOutEvent = (data) => {
       <button @click="$auth.signOut">Sign out</button>
     </template>
   </nav>
-  <img alt="RoboticFund logo" class="logo" src="../assets/accent2.png" width="450" height="100" />
 </template>
 
 <style scoped>
