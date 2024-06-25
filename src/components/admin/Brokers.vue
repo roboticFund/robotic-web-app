@@ -29,11 +29,15 @@ async function checkBrokerExists(name) {
   return result.data.listBrokers.items.length > 0;
 }
 
-function toggleEditMode(index) {
-      this.Brokers[index].editMode = !this.Brokers[index].editMode;
+function toggleEditMode(item, index) {  
+      item.editMode = !item.editMode;
+      if (item.editMode) {
+        item.editedName = item.name; // Initialize editedName with current value
+      }
+      /*this.Brokers[index].editMode = !this.Brokers[index].editMode;
       if (this.Brokers[index].editMode) {
         this.Brokers[index].editedName = this.Brokers[index].name; // Initialize editedName with current value
-      }
+      }*/
     };
 
 
@@ -163,7 +167,7 @@ onMounted(() => {
                   </template>  
                 </td>
                 <td>      
-                  <span v-if="!item.editMode" @click="toggleEditMode(index)" class="action-icon">
+                  <span v-if="!item.editMode" @click="toggleEditMode(item, index)" class="action-icon">
                     <span class="edit-icon">✏️</span>
                   </span>           
                   <span v-else @click="saveBroker(item, index)" class="action-icon">
