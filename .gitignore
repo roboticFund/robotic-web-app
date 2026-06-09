@@ -1,43 +1,40 @@
-# Logs
-logs
-*.log
+# Node
+node_modules/
+dist/
+.vite/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-lerna-debug.log*
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
 
-node_modules
-.DS_Store
-dist
-dist-ssr
-coverage
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.env
+.venv/
+venv/
+env/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# CDK
+cdk.out/
+
+# React/Vite
 *.local
+coverage/
 
-/cypress/videos/
-/cypress/screenshots/
+# IDE
+.vscode/
+.idea/
+.DS_Store
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-#amplify-do-not-edit-begin
-amplify/\#current-cloud-backend
-amplify/.config/local-*
-amplify/logs
-amplify/mock-data
-amplify/mock-api-resources
-amplify/backend/amplify-meta.json
-amplify/backend/.temp
-build/
-dist/
-node_modules/
+# Generated AWS files
 aws-exports.js
 awsconfiguration.json
 amplifyconfiguration.json
@@ -45,6 +42,8 @@ amplifyconfiguration.dart
 amplify-build-config.json
 amplify-gradle-config.json
 amplifytools.xcconfig
-.secret-*
-**.sample
-#amplify-do-not-edit-end
+
+# Other
+*.log
+*.sqlite
+*.db

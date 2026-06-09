@@ -1,29 +1,44 @@
 # robotic-web-app
 
-This template should help get you started developing with Vue 3 in Vite.
+This repository is being rebuilt as a new AWS-backed web application for the `trade-engine` project.
 
-## Recommended IDE Setup
+## What’s included
 
-[VSCode](https://code.visualstudio.com/) + [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur) + [TypeScript Vue Plugin (Volar)](https://marketplace.visualstudio.com/items?itemName=Vue.vscode-typescript-vue-plugin).
+- `frontend/` — React + TypeScript + Vite single-page app
+- `backend/` — FastAPI Python backend with initial routing scaffolding
+- `infra/` — AWS CDK in Python for infrastructure deployment
+- `docs/` — architecture, upload contract, API, and developer guidance
+- `AGENTS.md` — repository conventions and Codex guardrails
 
-## Customize configuration
+## Local setup
 
-See [Vite Configuration Reference](https://vitejs.dev/config/).
+### Backend
 
-## Project Setup
-
-```sh
-npm install
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+copy .env.example .env
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### Compile and Hot-Reload for Development
+### Frontend
 
-```sh
+```powershell
+cd frontend
+npm install
 npm run dev
 ```
 
-### Compile and Minify for Production
+### Notes
 
-```sh
-npm run build
-```
+- The frontend expects the backend at `http://localhost:8000` by default.
+- Use `frontend/.env.example` and `backend/.env.example` to configure environment variables.
+
+## Next steps
+
+1. Review the new repository layout and docs.
+2. Install frontend dependencies from `frontend/`.
+3. Install backend dependencies from `backend/`.
+4. Extend the backend API and frontend pages from the initial scaffold.
