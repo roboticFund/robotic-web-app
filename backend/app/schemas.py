@@ -2,7 +2,7 @@ from datetime import datetime
 from pathlib import PurePosixPath
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
 
 ALLOWED_ARTIFACT_TYPES = {
@@ -72,6 +72,7 @@ class AlgorithmVersionBase(OrmBaseModel):
     parameter_set_json: Dict[str, Any] = Field(default_factory=dict)
     git_commit_sha: Optional[str] = None
     is_current: bool = False
+    is_active: bool = True
 
 
 class AlgorithmVersionCreate(AlgorithmVersionBase):
@@ -197,7 +198,63 @@ class TrainingResultBase(OrmBaseModel):
 
 
 class TrainingResultCreate(TrainingResultBase):
+    algo_version_ids: List[int] = Field(default_factory=list)
     artifacts: List[TrainingArtifactBase]
+
+
+class TrainingResultUpdate(BaseModel):
+    model_id: Optional[int] = None
+    run_source: Optional[str] = None
+    status: Optional[str] = None
+    run_started_at: Optional[datetime] = None
+    run_completed_at: Optional[datetime] = None
+    data_from: Optional[datetime] = None
+    data_to: Optional[datetime] = None
+    summary_json: Optional[Dict[str, Any]] = None
+    chart_series_json: Optional[Dict[str, Any]] = None
+
+    @field_validator("model_id")
+    @classmethod
+    def validate_model_id(cls, value: Optional[int]) -> Optional[int]:
+        if value is not None and value <= 0:
+            raise ValueError("model_id must be a positive integer")
+        return value
+
+    @field_validator("run_source")
+    @classmethod
+    def validate_run_source(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            raise ValueError("run_source cannot be null")
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("run_source must not be empty")
+        return normalized
+
+    @field_validator("status")
+    @classmethod
+    def validate_update_status(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            raise ValueError("status cannot be null")
+        if value not in ALLOWED_RESULT_STATUSES:
+            raise ValueError(f"status must be one of {sorted(ALLOWED_RESULT_STATUSES)}")
+        return value
+
+
+class TrainingArtifactsAppend(BaseModel):
+    artifacts: List[TrainingArtifactBase] = Field(min_length=1)
+    summary_json: Optional[Dict[str, Any]] = None
+    chart_series_json: Optional[Dict[str, Any]] = None
+
+
+class AlgorithmVersionLinkRead(OrmBaseModel):
+    id: int
+    algo_id: int
+    version_label: str
+    is_current: bool = False
+    is_active: bool = True
+    algorithm_code: Optional[str] = None
+    algorithm_name: Optional[str] = None
+    algorithm_is_active: Optional[bool] = None
 
 
 class TrainingResultRead(TrainingResultBase):
@@ -205,6 +262,13 @@ class TrainingResultRead(TrainingResultBase):
     created_at: datetime
     updated_at: datetime
     artifacts: List[TrainingArtifactRead] = Field(default_factory=list)
+    linked_versions: List[AlgorithmVersionLinkRead] = Field(default_factory=list)
+
+    @computed_field
+    @property
+    def algo_version_ids(self) -> list[int]:
+        linked_ids = [version.id for version in self.linked_versions]
+        return linked_ids or [self.algo_version_id]
 
 
 class TrainingResultVisualization(BaseModel):

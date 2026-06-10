@@ -96,6 +96,18 @@ def upgrade() -> None:
     op.create_index("ix_training_results_id", "training_results", ["id"])
 
     op.create_table(
+        "training_result_versions",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("result_id", sa.Integer(), nullable=False),
+        sa.Column("algo_version_id", sa.Integer(), nullable=False),
+        sa.Column("created_at", sa.DateTime(), nullable=True),
+        sa.ForeignKeyConstraint(["result_id"], ["training_results.id"]),
+        sa.ForeignKeyConstraint(["algo_version_id"], ["algorithm_versions.id"]),
+        sa.UniqueConstraint("result_id", "algo_version_id", name="uq_training_result_version"),
+    )
+    op.create_index("ix_training_result_versions_id", "training_result_versions", ["id"])
+
+    op.create_table(
         "training_artifacts",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("result_id", sa.Integer(), nullable=False),
@@ -114,6 +126,8 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("ix_training_artifacts_id", table_name="training_artifacts")
     op.drop_table("training_artifacts")
+    op.drop_index("ix_training_result_versions_id", table_name="training_result_versions")
+    op.drop_table("training_result_versions")
     op.drop_index("ix_training_results_id", table_name="training_results")
     op.drop_table("training_results")
     op.drop_index("ix_algorithm_versions_id", table_name="algorithm_versions")

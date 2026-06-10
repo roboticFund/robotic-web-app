@@ -4,11 +4,15 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from pydantic import ValidationError
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
+from app import crud
 from app.core.config import settings
 from app.core.storage import create_presigned_upload, persist_local_upload
+from app.db.base import Base
 from app.db.models import Algorithm
-from app.schemas import AlgorithmMetadataImportItem, AlgorithmRead, TrainingArtifactBase, UploadRequest
+from app.schemas import AlgorithmCreate, AlgorithmMetadataImportItem, AlgorithmRead, AlgorithmVersionCreate, TrainingArtifactBase, TrainingArtifactsAppend, TrainingResultCreate, TrainingResultUpdate, UploadRequest
 
 
 class BackendSmokeTests(unittest.TestCase):
@@ -83,6 +87,176 @@ class BackendSmokeTests(unittest.TestCase):
         )
 
         self.assertEqual(item.parameter_set_json, {"algo_name": "GOLD-RSI-15-min"})
+
+    def test_training_result_can_link_multiple_algorithm_versions(self):
+        engine = create_engine("sqlite:///:memory:", future=True)
+        TestingSession = sessionmaker(bind=engine, future=True)
+        Base.metadata.create_all(bind=engine)
+
+        with TestingSession() as db:
+            algorithm = crud.create_algorithm(
+                db,
+                AlgorithmCreate(
+                    code="algo-combined",
+                    name="Combined test",
+                    instrument="GOLD",
+                    resolution="MINUTE_15",
+                ),
+            )
+            version_a = crud.create_algorithm_version(
+                db,
+                algorithm.id,
+                AlgorithmVersionCreate(version_label="a", parameter_set_json={}, is_current=True),
+            )
+            version_b = crud.create_algorithm_version(
+                db,
+                algorithm.id,
+                AlgorithmVersionCreate(version_label="b", parameter_set_json={}),
+            )
+
+            result = crud.create_training_result(
+                db,
+                TrainingResultCreate(
+                    algo_version_id=version_a.id,
+                    algo_version_ids=[version_a.id, version_b.id],
+                    run_source="offline_upload",
+                    status="completed",
+                    summary_json={},
+                    chart_series_json={},
+                    artifacts=[
+                        TrainingArtifactBase(
+                            artifact_type="stats_csv",
+                            file_name="advanced_metrics.csv",
+                            s3_key="training-results/test/advanced_metrics.csv",
+                            content_type="text/csv",
+                        )
+                    ],
+                ),
+            )
+            crud.create_training_result(
+                db,
+                TrainingResultCreate(
+                    algo_version_id=version_b.id,
+                    algo_version_ids=[version_b.id],
+                    run_source="offline_upload",
+                    status="completed",
+                    summary_json={},
+                    chart_series_json={},
+                    artifacts=[
+                        TrainingArtifactBase(
+                            artifact_type="stats_csv",
+                            file_name="prior_metrics.csv",
+                            s3_key="training-results/test/prior_metrics.csv",
+                            content_type="text/csv",
+                        )
+                    ],
+                ),
+            )
+
+            self.assertEqual(result.algo_version_id, version_a.id)
+            self.assertEqual({link.algo_version_id for link in result.version_links}, {version_a.id, version_b.id})
+            self.assertEqual(len(crud.list_training_results_for_version(db, version_b.id)), 2)
+            self.assertEqual(len(crud.list_training_results(db, algo_version_id=version_b.id)), 2)
+            self.assertEqual(len(crud.list_training_results(db, algo_id=algorithm.id)), 2)
+            self.assertEqual(len(crud.list_training_results(db, current_only=True)), 1)
+            self.assertEqual(len(crud.list_training_results(db, combined_only=True)), 1)
+
+            deleted_version = crud.delete_algorithm_version(db, version_b.id)
+            self.assertFalse(deleted_version.is_active)
+            self.assertEqual({version.id for version in crud.list_algorithm_versions(db, algorithm.id)}, {version_a.id})
+            self.assertEqual(
+                {version.id for version in crud.list_algorithm_versions(db, algorithm.id, include_inactive=True)},
+                {version_a.id, version_b.id},
+            )
+
+            deleted_algorithm = crud.delete_algorithm(db, algorithm.id)
+            self.assertFalse(deleted_algorithm.is_active)
+            self.assertEqual(crud.list_algorithm_versions(db, algorithm.id), [])
+
+    def test_training_result_artifacts_can_be_appended_to_existing_run(self):
+        engine = create_engine("sqlite:///:memory:", future=True)
+        TestingSession = sessionmaker(bind=engine, future=True)
+        Base.metadata.create_all(bind=engine)
+
+        with TestingSession() as db:
+            algorithm = crud.create_algorithm(
+                db,
+                AlgorithmCreate(
+                    code="algo-run",
+                    name="Run grouping test",
+                    instrument="GOLD",
+                    resolution="MINUTE_15",
+                ),
+            )
+            version = crud.create_algorithm_version(
+                db,
+                algorithm.id,
+                AlgorithmVersionCreate(version_label="current", parameter_set_json={}, is_current=True),
+            )
+            result = crud.create_training_result(
+                db,
+                TrainingResultCreate(
+                    algo_version_id=version.id,
+                    algo_version_ids=[version.id],
+                    run_source="offline_upload",
+                    status="completed",
+                    summary_json={"total_profit": 10},
+                    chart_series_json={},
+                    artifacts=[
+                        TrainingArtifactBase(
+                            artifact_type="stats_csv",
+                            file_name="metrics.csv",
+                            s3_key="training-results/test/metrics.csv",
+                            content_type="text/csv",
+                        )
+                    ],
+                ),
+            )
+
+            updated = crud.append_training_result_artifacts(
+                db,
+                result.id,
+                TrainingArtifactsAppend(
+                    summary_json={"sharpe_ratio": 1.2},
+                    artifacts=[
+                        TrainingArtifactBase(
+                            artifact_type="analysis_png",
+                            file_name="equity.png",
+                            s3_key="training-results/test/equity.png",
+                            content_type="image/png",
+                        )
+                    ],
+                ),
+            )
+
+            self.assertEqual(updated.id, result.id)
+            self.assertEqual(len(updated.artifacts), 2)
+            self.assertEqual(updated.summary_json, {"total_profit": 10, "sharpe_ratio": 1.2})
+
+            edited = crud.update_training_result(
+                db,
+                result.id,
+                TrainingResultUpdate(
+                    run_source="manual_correction",
+                    status="failed",
+                    summary_json={"review_note": "Bad input data"},
+                    chart_series_json={"equity": [1, 2, 3]},
+                ),
+            )
+
+            self.assertEqual(edited.id, result.id)
+            self.assertEqual(edited.run_source, "manual_correction")
+            self.assertEqual(edited.status, "failed")
+            self.assertEqual(edited.summary_json, {"review_note": "Bad input data"})
+            self.assertEqual(edited.chart_series_json, {"equity": [1, 2, 3]})
+
+            remaining = crud.delete_training_artifact(db, result.id, updated.artifacts[0].id)
+            self.assertEqual(remaining.id, result.id)
+            self.assertEqual(len(remaining.artifacts), 1)
+
+            deleted_result_id = crud.delete_training_result(db, result.id)
+            self.assertEqual(deleted_result_id, result.id)
+            self.assertIsNone(crud.get_training_result(db, result.id))
 
 
 if __name__ == "__main__":

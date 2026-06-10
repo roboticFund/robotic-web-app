@@ -13,6 +13,7 @@ interface AlgorithmVersion {
   description?: string;
   git_commit_sha?: string;
   is_current: boolean;
+  is_active: boolean;
   created_at: string;
 }
 
@@ -153,11 +154,15 @@ function AlgorithmVersions() {
     }
   };
 
-  const handleDelete = async (versionId: number) => {
+  const handleDelete = async (version: AlgorithmVersion) => {
+    const confirmed = window.confirm(
+      `Delete version "${version.version_label}"?\n\nThis will hide it from active frontend lists. Existing results linked to it will be kept and marked as deleted.`,
+    );
+    if (!confirmed) return;
     setError(null);
     try {
-      await apiDelete(`/v1/algorithm-versions/${versionId}`);
-      if (editingVersionId === versionId) {
+      await apiDelete(`/v1/algorithm-versions/${version.id}`);
+      if (editingVersionId === version.id) {
         cancelEdit();
       }
       refreshVersions();
@@ -357,7 +362,7 @@ function AlgorithmVersions() {
                         <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
                           version.is_current ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"
                         }`}>
-                          {version.is_current ? "Current" : "Inactive"}
+                          {version.is_current ? "Current" : "Prior"}
                         </span>
                       </td>
                       <td className="px-3 py-2 text-sm text-slate-700">{version.git_commit_sha ?? "—"}</td>
@@ -372,7 +377,7 @@ function AlgorithmVersions() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleDelete(version.id)}
+                          onClick={() => handleDelete(version)}
                           className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-rose-700 transition hover:bg-rose-100"
                         >
                           Delete

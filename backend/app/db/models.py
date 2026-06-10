@@ -30,11 +30,25 @@ class AlgorithmVersion(Base):
     parameter_set_json = Column(JSON, nullable=False, default=dict)
     git_commit_sha = Column(String(128), nullable=True)
     is_current = Column(Boolean, default=False)
+    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     algorithm = relationship("Algorithm", back_populates="versions")
     results = relationship("TrainingResult", back_populates="algorithm_version")
+    result_links = relationship("TrainingResultVersion", back_populates="algorithm_version")
+
+    @property
+    def algorithm_code(self):
+        return self.algorithm.code if self.algorithm else None
+
+    @property
+    def algorithm_name(self):
+        return self.algorithm.name if self.algorithm else None
+
+    @property
+    def algorithm_is_active(self):
+        return self.algorithm.is_active if self.algorithm else None
 
 
 class TrainingModel(Base):
@@ -76,6 +90,21 @@ class TrainingResult(Base):
     algorithm_version = relationship("AlgorithmVersion", back_populates="results")
     model = relationship("TrainingModel", back_populates="results")
     artifacts = relationship("TrainingArtifact", back_populates="result")
+    version_links = relationship("TrainingResultVersion", back_populates="result", cascade="all, delete-orphan")
+    linked_versions = relationship("AlgorithmVersion", secondary="training_result_versions", viewonly=True)
+
+
+class TrainingResultVersion(Base):
+    __tablename__ = "training_result_versions"
+    __table_args__ = (UniqueConstraint("result_id", "algo_version_id", name="uq_training_result_version"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    result_id = Column(Integer, ForeignKey("training_results.id"), nullable=False)
+    algo_version_id = Column(Integer, ForeignKey("algorithm_versions.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    result = relationship("TrainingResult", back_populates="version_links")
+    algorithm_version = relationship("AlgorithmVersion", back_populates="result_links")
 
 
 class TrainingArtifact(Base):

@@ -18,8 +18,8 @@ def get_db():
 
 
 @router.get("/{algo_id}/versions", response_model=list[AlgorithmVersionRead])
-def list_versions(algo_id: int, db: Session = Depends(get_db)):
-    return crud.list_algorithm_versions(db, algorithm_id=algo_id)
+def list_versions(algo_id: int, include_inactive: bool = False, db: Session = Depends(get_db)):
+    return crud.list_algorithm_versions(db, algorithm_id=algo_id, include_inactive=include_inactive)
 
 
 @router.post("/{algo_id}/versions", response_model=AlgorithmVersionRead)

@@ -16,9 +16,6 @@ function Topbar() {
           <img src={markLogo} alt="Robotic Fund mark" className="h-8 w-auto" />
           <span className="font-medium text-slate-100">trade-engine</span>
         </div>
-        <button className="inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-[#b33696] to-[#962e7a] px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-pink-500/20 transition hover:from-[#c24ca8] hover:to-[#a1448f]">
-          View Settings
-        </button>
       </div>
     </header>
   );

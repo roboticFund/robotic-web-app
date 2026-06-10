@@ -6,6 +6,7 @@ import TrainingModels from './pages/TrainingModels';
 import AlgorithmVersions from './pages/AlgorithmVersions';
 import UploadResults from './pages/UploadResults';
 import ResultDetail from './pages/ResultDetail';
+import Results from './pages/Results';
 import Admin from './pages/Admin';
 
 function App() {
@@ -16,6 +17,7 @@ function App() {
         <Route path="/algorithms" element={<Algorithms />} />
         <Route path="/training-models" element={<TrainingModels />} />
         <Route path="/algorithm-versions" element={<AlgorithmVersions />} />
+        <Route path="/results" element={<Results />} />
         <Route path="/upload-results" element={<UploadResults />} />
         <Route path="/admin" element={<Admin />} />
         <Route path="/results/:resultId" element={<ResultDetail />} />

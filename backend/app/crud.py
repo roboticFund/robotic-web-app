@@ -1,3 +1,4 @@
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
 from app.db import models
@@ -10,7 +11,9 @@ from app.schemas import (
     AlgorithmMetadataImportItem,
     TrainingModelCreate,
     TrainingModelUpdate,
+    TrainingArtifactsAppend,
     TrainingResultCreate,
+    TrainingResultUpdate,
 )
 
 
@@ -18,6 +21,18 @@ DEFAULT_ADMIN_OPTIONS = {
     "instrument": ["EURUSD", "BTCUSD", "AAPL", "ETHUSD", "GOLD"],
     "resolution": ["1m", "5m", "15m", "1h", "1d", "MINUTE_15"],
 }
+
+
+def _list_training_results_by_ordered_ids(db: Session, result_ids: list[int]):
+    if not result_ids:
+        return []
+    ordering = case({result_id: index for index, result_id in enumerate(result_ids)}, value=models.TrainingResult.id)
+    return (
+        db.query(models.TrainingResult)
+        .filter(models.TrainingResult.id.in_(result_ids))
+        .order_by(ordering)
+        .all()
+    )
 
 
 def get_algorithm(db: Session, algorithm_id: int):
@@ -62,7 +77,13 @@ def delete_algorithm(db: Session, algorithm_id: int):
     if not db_obj:
         return None
     db_obj.is_active = False
+    (
+        db.query(models.AlgorithmVersion)
+        .filter(models.AlgorithmVersion.algo_id == algorithm_id)
+        .update({"is_active": False, "is_current": False})
+    )
     db.commit()
+    db.refresh(db_obj)
     return db_obj
 
 
@@ -86,13 +107,11 @@ def reactivate_algorithm(db: Session, algorithm_id: int):
     return db_obj
 
 
-def list_algorithm_versions(db: Session, algorithm_id: int):
-    return (
-        db.query(models.AlgorithmVersion)
-        .filter(models.AlgorithmVersion.algo_id == algorithm_id)
-        .order_by(models.AlgorithmVersion.created_at.desc())
-        .all()
-    )
+def list_algorithm_versions(db: Session, algorithm_id: int, include_inactive: bool = False):
+    query = db.query(models.AlgorithmVersion).filter(models.AlgorithmVersion.algo_id == algorithm_id)
+    if not include_inactive:
+        query = query.filter(models.AlgorithmVersion.is_active == True)
+    return query.order_by(models.AlgorithmVersion.created_at.desc()).all()
 
 
 def get_algorithm_version(db: Session, version_id: int):
@@ -125,7 +144,7 @@ def update_algorithm_version(db: Session, version_id: int, version_update: Algor
 
 def mark_algorithm_version_current(db: Session, version_id: int):
     version = get_algorithm_version(db, version_id)
-    if not version:
+    if not version or not version.is_active:
         return None
     db.query(models.AlgorithmVersion).filter(models.AlgorithmVersion.algo_id == version.algo_id).update({"is_current": False})
     version.is_current = True
@@ -174,17 +193,24 @@ def delete_algorithm_version(db: Session, version_id: int):
     db_obj = get_algorithm_version(db, version_id)
     if not db_obj:
         return None
-    db.delete(db_obj)
+    db_obj.is_active = False
+    db_obj.is_current = False
     db.commit()
+    db.refresh(db_obj)
     return db_obj
 
 
 def create_training_result(db: Session, payload: TrainingResultCreate):
     artifacts_data = payload.artifacts
-    payload_data = payload.model_dump(exclude={"artifacts"})
+    linked_version_ids = list(dict.fromkeys([payload.algo_version_id, *payload.algo_version_ids]))
+    payload_data = payload.model_dump(exclude={"artifacts", "algo_version_ids"})
     db_obj = models.TrainingResult(**payload_data)
     db.add(db_obj)
     db.flush()
+
+    for version_id in linked_version_ids:
+        db.add(models.TrainingResultVersion(result_id=db_obj.id, algo_version_id=version_id))
+
     for artifact in artifacts_data:
         artifact_obj = models.TrainingArtifact(result_id=db_obj.id, **artifact.model_dump())
         db.add(artifact_obj)
@@ -193,22 +219,111 @@ def create_training_result(db: Session, payload: TrainingResultCreate):
     return db_obj
 
 
-def list_training_results(db: Session, skip: int = 0, limit: int = 50):
-    return db.query(models.TrainingResult).offset(skip).limit(limit).all()
+def list_training_results(
+    db: Session,
+    skip: int = 0,
+    limit: int = 50,
+    algo_id: int | None = None,
+    algo_version_id: int | None = None,
+    current_only: bool = False,
+    status: str | None = None,
+    run_source: str | None = None,
+    combined_only: bool = False,
+):
+    query = db.query(models.TrainingResult)
+
+    if combined_only:
+        combined_result_ids = (
+            db.query(models.TrainingResultVersion.result_id.label("result_id"))
+            .group_by(models.TrainingResultVersion.result_id)
+            .having(func.count(models.TrainingResultVersion.algo_version_id) > 1)
+            .subquery()
+        )
+        query = query.join(combined_result_ids, combined_result_ids.c.result_id == models.TrainingResult.id)
+
+    needs_version_context = algo_id is not None or algo_version_id is not None or current_only
+    if needs_version_context:
+        query = (
+            query.outerjoin(models.TrainingResultVersion)
+            .outerjoin(
+                models.AlgorithmVersion,
+                or_(
+                    models.AlgorithmVersion.id == models.TrainingResultVersion.algo_version_id,
+                    models.AlgorithmVersion.id == models.TrainingResult.algo_version_id,
+                ),
+            )
+        )
+        if current_only:
+            query = query.outerjoin(models.Algorithm, models.Algorithm.id == models.AlgorithmVersion.algo_id)
+
+    if algo_id is not None:
+        query = query.filter(models.AlgorithmVersion.algo_id == algo_id)
+    if algo_version_id is not None:
+        query = query.filter(or_(
+            models.TrainingResult.algo_version_id == algo_version_id,
+            models.TrainingResultVersion.algo_version_id == algo_version_id,
+        ))
+    if current_only:
+        query = query.filter(
+            models.AlgorithmVersion.is_current == True,
+            models.AlgorithmVersion.is_active == True,
+            models.Algorithm.is_active == True,
+        )
+    if status:
+        query = query.filter(models.TrainingResult.status == status)
+    if run_source:
+        query = query.filter(models.TrainingResult.run_source == run_source)
+
+    result_ids = [
+        row.id
+        for row in (
+            query.with_entities(models.TrainingResult.id)
+            .group_by(models.TrainingResult.id, models.TrainingResult.created_at)
+            .order_by(models.TrainingResult.created_at.desc(), models.TrainingResult.id.desc())
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+    ]
+    return _list_training_results_by_ordered_ids(db, result_ids)
 
 
 def list_training_results_for_version(db: Session, algo_version_id: int, skip: int = 0, limit: int = 50):
-    return (
-        db.query(models.TrainingResult)
-        .filter(models.TrainingResult.algo_version_id == algo_version_id)
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
+    result_ids = [
+        row.id
+        for row in (
+            db.query(models.TrainingResult.id)
+            .outerjoin(models.TrainingResultVersion)
+            .filter(or_(
+                models.TrainingResult.algo_version_id == algo_version_id,
+                models.TrainingResultVersion.algo_version_id == algo_version_id,
+            ))
+            .group_by(models.TrainingResult.id, models.TrainingResult.created_at)
+            .order_by(models.TrainingResult.created_at.desc(), models.TrainingResult.id.desc())
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+    ]
+    return _list_training_results_by_ordered_ids(db, result_ids)
 
 
 def get_training_result(db: Session, result_id: int):
     return db.query(models.TrainingResult).filter(models.TrainingResult.id == result_id).first()
+
+
+def update_training_result(db: Session, result_id: int, payload: TrainingResultUpdate):
+    result = get_training_result(db, result_id)
+    if not result:
+        return None
+    update_data = payload.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        if field in {"summary_json", "chart_series_json"} and value is None:
+            value = {}
+        setattr(result, field, value)
+    db.commit()
+    db.refresh(result)
+    return result
 
 
 def list_training_artifacts(db: Session, result_id: int):
@@ -218,6 +333,37 @@ def list_training_artifacts(db: Session, result_id: int):
         .order_by(models.TrainingArtifact.created_at.asc())
         .all()
     )
+
+
+def get_training_artifact(db: Session, artifact_id: int):
+    return db.query(models.TrainingArtifact).filter(models.TrainingArtifact.id == artifact_id).first()
+
+
+def delete_training_artifact(db: Session, result_id: int, artifact_id: int):
+    artifact = (
+        db.query(models.TrainingArtifact)
+        .filter(
+            models.TrainingArtifact.id == artifact_id,
+            models.TrainingArtifact.result_id == result_id,
+        )
+        .first()
+    )
+    if not artifact:
+        return None
+    db.delete(artifact)
+    db.commit()
+    return get_training_result(db, result_id)
+
+
+def delete_training_result(db: Session, result_id: int):
+    result = get_training_result(db, result_id)
+    if not result:
+        return None
+    db.query(models.TrainingArtifact).filter(models.TrainingArtifact.result_id == result_id).delete()
+    db.query(models.TrainingResultVersion).filter(models.TrainingResultVersion.result_id == result_id).delete()
+    db.delete(result)
+    db.commit()
+    return result_id
 
 
 def list_admin_options(db: Session, option_type: str):
@@ -250,6 +396,30 @@ def create_admin_option(db: Session, option: AdminOptionCreate):
     db.commit()
     db.refresh(db_obj)
     return db_obj
+
+
+def append_training_result_artifacts(db: Session, result_id: int, payload: TrainingArtifactsAppend):
+    result = get_training_result(db, result_id)
+    if not result:
+        return None
+
+    if payload.summary_json:
+        result.summary_json = {
+            **(result.summary_json or {}),
+            **payload.summary_json,
+        }
+    if payload.chart_series_json:
+        result.chart_series_json = {
+            **(result.chart_series_json or {}),
+            **payload.chart_series_json,
+        }
+
+    for artifact in payload.artifacts:
+        db.add(models.TrainingArtifact(result_id=result.id, **artifact.model_dump()))
+
+    db.commit()
+    db.refresh(result)
+    return result
 
 
 def delete_admin_option(db: Session, option_type: str, value: str):

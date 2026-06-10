@@ -6,6 +6,7 @@ const links = [
   { to: "/algorithms", label: "Algorithms" },
   { to: "/training-models", label: "Training Models" },
   { to: "/algorithm-versions", label: "Algorithm Versions" },
+  { to: "/results", label: "Results" },
   { to: "/upload-results", label: "Upload Results" },
   { to: "/admin", label: "Admin" },
 ];

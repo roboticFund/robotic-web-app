@@ -16,6 +16,7 @@ This document defines the offline artifact upload contract for training results 
 The frontend should submit the following payload when finalizing an upload:
 
 - `algo_version_id` - referenced algorithm version
+- `algo_version_ids` - optional array of all linked algorithm versions for combined results; include `algo_version_id` as the first/primary version
 - `model_id` - referenced training model
 - `run_source` - e.g. `offline_upload`
 - `status` - one of `pending`, `completed`, or `failed`
@@ -24,6 +25,12 @@ The frontend should submit the following payload when finalizing an upload:
 - `summary_json` - summary metrics extracted from the uploaded artifacts
 - `chart_series_json` - optional precomputed chart data for quick visualization
 - `artifacts` - array of artifact descriptors
+
+For a normal single-algorithm result, send only `algo_version_id` or send `algo_version_ids` with one item. For combined algorithm results, send `algo_version_id` as the primary version and `algo_version_ids` with every contributing version.
+
+A single result run can contain multiple artifacts. The upload UI supports staging multiple files at once, and it can append later uploads to a matching run when the linked versions, model, run source, and status match an existing result. API clients can also append artifacts directly with `POST /v1/training-results/{result_id}/artifacts`.
+
+Result detail pages also expose drag-and-drop boxes for missing artifact categories, such as adding a metrics CSV to a run that already has a PNG chart, or adding a chart image to a CSV-only run.
 
 ### Artifact descriptor fields
 
