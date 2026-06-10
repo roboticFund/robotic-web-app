@@ -25,8 +25,29 @@ def list_algorithms(skip: int = 0, limit: int = 50, db: Session = Depends(get_db
 def create_algorithm(payload: AlgorithmCreate, db: Session = Depends(get_db)):
     existing = crud.get_algorithm_by_code(db, payload.code)
     if existing:
-        raise HTTPException(status_code=400, detail="Algorithm code already exists")
+        if existing.is_active:
+            raise HTTPException(status_code=400, detail="Algorithm code already exists")
+        existing.name = payload.name
+        existing.instrument = payload.instrument
+        existing.resolution = payload.resolution
+        existing.is_active = True
+        db.commit()
+        db.refresh(existing)
+        return existing
     return crud.create_algorithm(db, payload)
+
+
+@router.get("/retired", response_model=list[AlgorithmRead])
+def list_retired_algorithms(skip: int = 0, limit: int = 50, db: Session = Depends(get_db)):
+    return crud.list_retired_algorithms(db, skip=skip, limit=limit)
+
+
+@router.patch("/{algorithm_id}/reactivate", response_model=AlgorithmRead)
+def reactivate_algorithm(algorithm_id: int, db: Session = Depends(get_db)):
+    algorithm = crud.reactivate_algorithm(db, algorithm_id)
+    if not algorithm:
+        raise HTTPException(status_code=404, detail="Algorithm not found")
+    return algorithm
 
 
 @router.get("/{algorithm_id}", response_model=AlgorithmRead)

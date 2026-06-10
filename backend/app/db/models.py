@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base
@@ -92,3 +92,15 @@ class TrainingArtifact(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     result = relationship("TrainingResult", back_populates="artifacts")
+
+
+class AdminOption(Base):
+    __tablename__ = "admin_options"
+    __table_args__ = (UniqueConstraint("option_type", "value", name="uq_admin_option_type_value"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    option_type = Column(String(64), nullable=False)
+    value = Column(String(128), nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

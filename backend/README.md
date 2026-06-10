@@ -1,6 +1,6 @@
 # Backend Local Development
 
-This backend is a FastAPI application that supports algorithms, algorithm versions, training models, training results, and artifact upload targets.
+This backend is a FastAPI application that supports algorithms, algorithm versions, training models, training results, artifact upload targets, and shared admin dropdown values.
 
 ## Setup
 
@@ -30,12 +30,25 @@ copy .env.example .env
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-## Local artifact uploads
+## Local Artifact Uploads
 
 - If `S3_BUCKET` is configured, uploads use AWS S3 presigned URLs.
 - If `S3_BUCKET` is empty, the backend stores uploaded files under `storage/`.
+- `MAX_UPLOAD_BYTES` defaults to 250 MB.
+- Uploaded filenames are normalized to basenames, and artifact keys must stay under `training-results/`.
 
 ## Database
 
 The default development database is SQLite at `./dev.db` via `DATABASE_URL=sqlite:///./dev.db`.
-If you want to connect to your existing RDS instance, override `DATABASE_URL` in `.env`.
+
+For local SQLite only, `AUTO_CREATE_SQLITE_TABLES=true` lets the app create missing tables on startup. For any shared database, including RDS, run migrations instead:
+
+```powershell
+alembic upgrade head
+```
+
+## Tests
+
+```powershell
+python -m unittest discover
+```

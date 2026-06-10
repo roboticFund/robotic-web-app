@@ -1,0 +1,445 @@
+Phased AWS Website Plan for Algorithm Training Management
+Executive summary
+Yes, I can use your existing Python application to inform the recommendation, and I have done so from the ZIP and design screenshot you uploaded in this chat. I can also reliably use files and chats that are in the same ChatGPT Project. What I cannot safely assume is automatic visibility into arbitrary, unseen artifacts from separate Codex tasks merely because they were created on the same profile. OpenAI’s documentation describes Projects as sharing context across chats and files inside the project, notes that chat-history memory can recall useful prior context but does not retain every detail from past chats, and describes Codex cloud work as running in isolated repository-backed sandboxes. So the practical rule is: uploaded files, repo context, and project-shared artifacts are dependable inputs; unseen Codex task outputs are not unless you surface them through the repo, project, or this chat. [1]
+For version one, the best fit is a small internal AWS web application built as a static React frontend on S3 + CloudFront, a Python FastAPI backend on AWS Lambda behind API Gateway HTTP API, Amazon Cognito for sign-in, Amazon S3 for uploaded result artifacts, and your existing RDS instance if it has headroom, with a new dedicated schema or database for this app rather than mixing tables into the current live trading schema. This keeps the UI modular, keeps hosting costs low for ~5 users, aligns with your current AWS estate, and avoids redesigning the training jobs now. HTTP APIs support JWT/OIDC auth and built-in CORS, API Gateway has no minimum fees, Lambda is pay-per-use, Cognito managed login is the lowest-effort hosted sign-in path, and S3 presigned uploads let the browser send files directly to S3 without passing file binaries through your API. [2]
+On database choice, the most economical and fastest path overall is usually reusing your existing RDS instance if you can isolate this app with a separate schema/database, DB user, and security group rules. A new dedicated RDS instance adds a predictable ongoing baseline because RDS bills DB instance hours while the instance is running, plus storage and backups. DynamoDB can be cheaper in pure infrastructure terms for tiny, low-volume workloads because it avoids an always-on database instance and charges primarily for requests and storage, but your domain model is naturally relational: algorithms, versions, training models, results, and artifacts. For this use case, the engineering simplicity of RDS outweighs the likely DB bill advantage of DynamoDB. Cognito is also effectively negligible for 5 users because the user-pool free tier covers up to 10,000 monthly active users on the Lite or Essentials tiers. [3]
+The recommended delivery model is phased. Phase one is a registry-and-results portal: CRUD for Algorithms, Algorithm Versions, Training Models, and Training Results, plus offline execution in your existing app and upload of CSV/JSON artifacts for visualization. Later phases can add live training orchestration using Step Functions and AWS Batch, which AWS documents specifically as a fit for orchestrating batch workloads and machine-learning-style pipelines. [4]
+Assumptions
+Assumption
+Why it matters
+Your current AWS region is likely ap-southeast-2 or you are happy to keep the new app in the same region
+Your uploaded CDK app targets that region, so keeping the web app close to the existing estate reduces operational sprawl
+Your current RDS instance is MySQL-compatible, or at least you are open to keeping the website schema on the same relational engine
+Your uploaded Python app uses SQLAlchemy with mysql+pymysql, so MySQL is the lowest-friction relational path
+Version one will not run live training jobs from the website
+This allows the architecture to stay very lean and cost-effective
+User count remains very small, around 5, with low concurrent activity
+This supports Lambda/API Gateway and likely makes direct RDS connection acceptable for v1
+What I can reference from your existing work
+I can ground the plan in the material you uploaded here, and that is the most reliable source of truth for your current system. OpenAI’s own documentation supports a context model that is project-scoped and artifact-scoped, not “everything ever done on the same profile.” The implication is important for your workflow: if you want future architecture reviews to continue using Codex work, the safest way is to keep the web build, requirements notes, uploaded files, and relevant chats together in one ChatGPT Project and in the GitHub repository itself. Codex also works better when the repository contains durable guidance such as AGENTS.md, explicit constraints, and architecture docs. [5]
+From my inspection of your ZIP and screenshot, the strongest signals are these:
+Observation from your upload
+What it means for the website recommendation
+Your current app already uses AWS CDK in Python and deploys AWS resources
+Stay with Python CDK for the new site to keep one IaC style
+Your current app already uses AWS Secrets Manager and SQLAlchemy/MySQL
+Reuse that pattern for the web backend instead of introducing a new database paradigm
+Algorithms are organized under resources/algorithms/algo*/algo_params.py
+Seed the website’s Algorithm and Algorithm Version records directly from repo metadata
+Backtests/training already produce artifacts under resources/algoResults/ and optimization output JSON/HTML
+Version one should treat the website as a control plane + artifact registry + visualization layer, not as a new training engine
+Your design sketch already centers on Algorithm, Algorithm Version, Training Model, and Training Result
+The relational model should preserve those entities, but add Artifacts as a first-class concept
+Some optimization JSON includes absolute local file paths
+The uploader should strip machine-specific paths and store only logical artifact labels + S3 keys
+That last point matters more than it first appears. If you upload raw result bundles produced on a workstation, you do not want Windows local paths, OneDrive paths, or machine-specific directory names ending up as durable system metadata. Store artifact metadata in business terms only: result ID, artifact type, file name, S3 key, checksum, and MIME type.
+Recommended AWS architecture and cost position
+The architecture below is the best balance of simplicity, modularity, AWS alignment, and low operating cost for your first version. CloudFront can securely serve content from a private S3 origin using Origin Access Control, HTTP APIs support OIDC/OAuth and CORS, Cognito managed login gives you a ready-to-use hosted sign-in flow, and Lambda can connect to RDS directly in simple scenarios or via RDS Proxy later if traffic patterns justify it. AWS explicitly states that Lambda-to-RDS direct connections are useful in simple scenarios and that proxies are recommended for production when you expect frequent short-lived DB connections; RDS Proxy is separately billed, so deferring it to a later phase is a reasonable cost tradeoff for your tiny user base. [6]
+
+Service choices and rationale
+Layer
+Recommended choice
+Why this is the right v1 choice
+Frontend hosting
+S3 + CloudFront
+Lowest-complexity static hosting on AWS; ideal for a React SPA; private S3 origin with CloudFront OAC
+Authentication
+Cognito User Pool + managed login
+Secure and low-effort for ~5 internal users; avoids building auth screens yourself
+API
+API Gateway HTTP API
+Lower-complexity API layer with JWT support and built-in CORS
+Backend compute
+Lambda + FastAPI
+Cheap at low volume, native Python fit, easy to extend later
+Relational data
+Existing RDS instance, new schema/database
+Best economics if there is headroom; matches your current app and data model
+File artifacts
+S3
+Correct storage class for CSV/JSON/HTML result files; keeps RDS small
+Infrastructure as code
+AWS CDK in Python
+Matches your existing stack and lets you stay in one language family
+CI/CD
+GitHub Actions + OIDC to AWS
+Keeps deployment logic in-repo and avoids long-lived AWS secrets
+Why I recommend RDS over DynamoDB here
+Your v1 use case is not an event stream or a key-value store. It is a small internal administrative system with versioned relational entities and obvious joins:
+one Algorithm has many Algorithm Versions;
+one Training Model can be used across many Training Results;
+one Training Result belongs to one Algorithm Version and optionally one Training Model;
+one Training Result has many uploaded artifacts.
+That maps directly to a relational schema. DynamoDB’s raw billing model can be very attractive for low-volume systems because you avoid an always-on database instance and mostly pay for request units and storage, but the data model itself would become more complex for very little user-visible benefit. By contrast, RDS pricing is driven by DB instance hours, storage, backup storage, and optional IOPS. So the decision rule is straightforward: if you can piggyback on an existing RDS instance safely, do that; if you must create a brand-new datastore, DynamoDB may look cheaper on monthly infrastructure alone, but it is still the wrong abstraction for this v1. [7]
+Cost tradeoff summary
+Option
+Cost shape
+Operational impact
+Recommendation
+Extend existing RDS instance
+Mostly marginal storage/backup and some extra load on an instance you already pay for
+Lowest additional cost, but shared blast radius with live systems
+Best if the instance has headroom and you isolate with a new schema/database + DB user
+New dedicated RDS instance
+Separate ongoing DB instance-hour cost, plus storage and backups
+Better isolation, higher baseline spend
+Use only if you want hard isolation from the live trading DB
+DynamoDB on-demand
+Mostly request + storage based, no always-on DB instance
+Cheapest pure DB bill in some very small workloads, but more modeling effort
+Not recommended for v1 despite possible infra savings
+For the non-database parts of the stack, the cost profile is favorable for your size. API Gateway charges per API call with no minimum fee, Lambda is pay-per-use based on requests and duration, and Cognito’s user-pool free tier is far above your expected user count. In your case, the database decision is the main strategic cost lever. [8]
+Future-state extension without redesign
+For live model training later, the cleanest path is to keep today’s web app as the control plane and add a workflow plane:
+the website submits a training request;
+Step Functions coordinates the workflow;
+AWS Batch runs a containerized training/backtest job based on your existing Python code;
+results land in S3 and status rolls back into RDS.
+That is a natural future state because AWS positions Step Functions as a workflow orchestrator for distributed applications and ML-style pipelines, and it supports calling AWS Batch directly for batch workloads. For recurring training schedules, AWS now recommends EventBridge Scheduler instead of legacy scheduled rules. [9]
+Database schema and API design
+The screenshot’s four-entity idea is directionally correct, but I would make one important enhancement: separate result metadata from uploaded artifacts. Do not put CSV or JSON blobs into RDS unless they are tiny and specifically needed for fast UI display. Keep relational metadata in RDS, keep files in S3, and store only the result summary and optional precomputed chart preview in the database.
+Recommended entity model
+
+Table definitions and migration plan
+A migration-based approach is the right choice here. SQLAlchemy remains the natural ORM fit for your Python backend, and Alembic is the standard migration tool in the SQLAlchemy ecosystem, including support for autogenerated candidate migrations. [10]
+Table
+Core fields
+Notes
+Migration
+algorithm
+algo_id, code, name, instrument, resolution, is_active, timestamps
+Seed initially from your current algo_params.py files
+m001_create_algorithm_registry
+algorithm_version
+algo_version_id, algo_id, version_label, description, parameter_set_json, git_commit_sha, is_current, timestamps
+Store the parameter set as JSON; keep one current version per algorithm in service logic
+m001_create_algorithm_registry
+training_model
+model_id, key, name, description, optimizer, trial_count, parameter_ranges_json, config_json, is_active, timestamps
+This holds reusable optimization/training configurations, not individual run outcomes
+m002_create_training_models
+training_result
+result_id, algo_version_id, model_id, run_source, status, run dates, summary metric columns, raw_summary_json, chart_series_json, s3_prefix, timestamps
+Use metric columns for fast sorting/filtering and JSON for flexible detail
+m003_create_training_results
+training_artifact
+artifact_id, result_id, artifact_type, file_name, s3_key, content_type, byte_size, checksum_sha256, timestamps
+Supports multiple files per run: stats CSV, raw CSV, best params JSON, HTML, PNG
+m003_create_training_results
+Why this schema maps well to your uploaded app
+Your current codebase already gives you a strong import contract:
+algorithm metadata already exists in per-algorithm parameter files;
+backtests export summary CSVs and detailed CSVs;
+optimization outputs include JSON and HTML;
+future walk-forward analysis already generates artifact-style outputs.
+That means the web app does not need to invent a new storage model for version one. It needs to formalize what your current application already emits.
+Recommended API surface
+FastAPI is a strong fit because it gives you Python-native typing and automatic OpenAPI documentation, which is useful when you are iterating quickly with VS Code and Codex. FastAPI’s router structure also suits a modular app layout. [11]
+Endpoint
+Method
+Purpose
+/v1/algorithms
+GET
+List algorithms
+/v1/algorithms
+POST
+Create algorithm
+/v1/algorithms/{algoId}
+GET
+Get algorithm detail
+/v1/algorithms/{algoId}
+PATCH
+Update algorithm
+/v1/algorithms/{algoId}
+DELETE
+Soft-delete algorithm
+/v1/algorithms/{algoId}/versions
+GET
+List versions for an algorithm
+/v1/algorithms/{algoId}/versions
+POST
+Create new algorithm version
+/v1/algorithm-versions/{versionId}
+GET
+Version detail
+/v1/algorithm-versions/{versionId}
+PATCH
+Update version fields
+/v1/algorithm-versions/{versionId}/make-current
+POST
+Mark a version as current
+/v1/training-models
+GET/POST
+List or create reusable training models
+/v1/training-models/{modelId}
+GET/PATCH/DELETE
+Manage a training model
+/v1/training-results
+GET
+List results with filters
+/v1/training-results/uploads
+POST
+Generate presigned S3 upload target
+/v1/training-results
+POST
+Finalize uploaded result bundle and persist metadata
+/v1/training-results/{resultId}
+GET
+Result detail
+/v1/training-results/{resultId}/artifacts
+GET
+List run artifacts
+/v1/training-results/{resultId}/visualization
+GET
+Return summary cards and chart series
+/v1/admin/import-algorithm-metadata
+POST
+Optional one-time or manual sync from repo metadata
+Authentication approach
+For five internal users, the best fit is Cognito User Pools with managed login on the frontend and API Gateway HTTP API JWT authorizers on the API. AWS calls managed login the lowest-effort integration path for web apps because Cognito hosts the sign-in flow for you, and HTTP APIs natively support JWT/OAuth/OIDC authorization. That gives you a secure system with very little custom auth code. I would define three groups from day one: admin, editor, and viewer. [12]
+Request and response examples
+A clean create-version request should look like this:
+POST /v1/algorithms/17/versions{  "version_label": "2026-06-09-a",  "description": "Initial website-imported version for algo-17",  "parameter_set_json": {    "algo_name": "GOLD-RSI-15-min",    "algo_number": "algo-17",    "instrument": "GOLD",    "resolution": "MINUTE_15"  },  "git_commit_sha": "abc1234",  "is_current": true}
+201 Created{  "algo_version_id": 42,  "algo_id": 17,  "version_label": "2026-06-09-a",  "is_current": true,  "created_at": "2026-06-09T10:45:00Z"}
+For result upload, use a two-step flow so the browser uploads directly to S3 and the API only stores metadata. AWS’s presigned-URL guidance is exactly for this pattern. [13]
+POST /v1/training-results/uploads{  "file_name": "algo-17_stats.csv",  "artifact_type": "stats_csv",  "content_type": "text/csv"}
+200 OK{  "object_key": "training-results/2026/06/09/run-uuid/algo-17_stats.csv",  "upload_url": "<presigned-put-url>",  "expires_in_seconds": 900}
+After the browser uploads all artifacts, finalize the run:
+POST /v1/training-results{  "algo_version_id": 42,  "model_id": 5,  "run_source": "offline_upload",  "status": "completed",  "run_started_at": "2026-06-09T10:10:00Z",  "run_completed_at": "2026-06-09T10:42:00Z",  "data_from": "2019-01-01",  "data_to": "2025-12-31",  "artifacts": [    {      "artifact_type": "stats_csv",      "s3_key": "training-results/2026/06/09/run-uuid/algo-17_stats.csv"    },    {      "artifact_type": "raw_result_csv",      "s3_key": "training-results/2026/06/09/run-uuid/algo-17.csv"    },    {      "artifact_type": "best_params_json",      "s3_key": "training-results/2026/06/09/run-uuid/best_params.json"    }  ]}
+201 Created{  "result_id": 981,  "status": "completed",  "summary": {    "sharpe_ratio": 1.42,    "max_drawdown": -7.8,    "profit_factor": 1.91,    "total_profit": 18342.0,    "total_trades": 214,    "win_rate": 57.5  }}
+Frontend and repository workflow
+For the frontend, I recommend React + TypeScript + Vite + React Router + TanStack Query + Tailwind CSS. React gives you a component model that is well suited to internal tools, Vite builds optimized static assets suitable for static hosting, React Router gives you straightforward client-side routing for a dashboard-style SPA, TanStack Query handles the messy parts of server-state fetching and caching, and Tailwind generates static CSS from the classes used in your templates with no runtime styling engine. In a small internal app, that stack is modern, clean, very modifiable, and easy for Codex to work with. [14]
+Screen model
+I would use your screenshot as a guide, but simplify the navigation for version one.
+Screen
+Purpose
+Main components
+Dashboard
+Quick overview of current algorithms, current versions, recent uploads, latest key metrics
+KPI cards, “current versions” list, recent results table
+Algorithms
+List and search algorithms
+Data table, filters, status chips
+Algorithm detail
+View one algorithm and its version history
+Header, version timeline/table, parameter JSON viewer, results tab
+Training models
+CRUD reusable training configurations
+Form page, JSON parameter-range editor, active/inactive toggle
+Upload results
+Guided offline upload flow
+Drag-drop zone, manifest form, artifact checklist, validation messages
+Result detail
+View metrics and charts for one run
+Metric cards, equity/drawdown chart, artifact download list
+Admin
+Optional one-time import/sync tools
+“Import from repo metadata” action, health/debug indicators
+Two design adjustments are worth making immediately. First, I would merge “View Algorithms” and “Manage Algorithms” into a single Algorithms area with list and detail screens; it is simpler and more familiar. Second, I would replace the screenshot’s vague View Analysis placeholder with a more concrete Results view in v1, because that is what users will actually do: upload and inspect completed runs.
+Repository structure
+I recommend a new GitHub monorepo for the website rather than mixing it into the existing trade engine repository. The reasons are practical: different deployment cadence, less risk to the live trading codebase, and clearer Codex context. Keep the interface to the training app simple and explicit through upload contracts and, later, shared packages if needed.
+algo-manager-web/  frontend/  backend/  infra/  scripts/  docs/    architecture.md    upload-contract.md    api.md  AGENTS.md  .github/workflows/
+This is also where Codex best practices matter. OpenAI explicitly recommends giving Codex durable repository guidance via AGENTS.md, clear task context, constraints, and “done when” criteria. In other words, if you want Codex to accelerate this build, give it a well-structured monorepo and a written architecture contract. [15]
+CI/CD and deployment workflow
+The infrastructure layer should be AWS CDK in Python. AWS positions CDK as a CloudFormation-backed IaC tool with repeatable deployments and rollback on error, and your current uploaded application is already CDK-based. For deployment from GitHub, use GitHub Actions with AWS OIDC federation so you do not need long-lived AWS secrets in GitHub. Protect the main branch and require pull-request review before production deploys. [16]
+
+My recommendation for environments is intentionally conservative to control cost:
+Environment
+Recommendation
+Why
+Local
+Yes
+Most day-to-day work can happen locally at zero AWS cost
+Persistent AWS dev
+Optional, not mandatory for v1
+Adds cost; useful only if you need shared cloud-based testing
+Production
+Yes
+Single live environment for the internal team
+For a one-person or very small-team build, I would run two GitHub workflows:
+Workflow
+Trigger
+Action
+ci.yml
+Pull requests
+Lint, type-check, test backend, build frontend, cdk synth
+deploy-prod.yml
+Merge to main or manual dispatch
+Assume AWS role via OIDC, build assets, cdk deploy
+Step-by-step implementation plan
+The plan below is optimized for “start building now,” not for theoretical perfection.
+Implementation checklist
+Task
+Output
+Estimated effort
+Create new GitHub monorepo and write docs/architecture.md, docs/upload-contract.md, AGENTS.md
+Stable repo foundation for VS Code + Codex
+0.5 day
+Scaffold CDK app in Python
+Base stack for S3, CloudFront, Cognito, API, Lambda, S3 artifacts bucket
+1.0 day
+Create RDS schema/database and least-privilege DB user
+Isolated relational store for the web app
+0.5 day
+Add SQLAlchemy models and Alembic migrations
+Persistent schema with version control
+1.0 day
+Build auth wiring
+Cognito sign-in and JWT-protected API
+0.5 day
+Build Algorithms + Versions CRUD API
+Core registry backend
+1.0 day
+Build Training Models CRUD API
+Reusable optimization-config backend
+0.5 day
+Build S3 upload and finalize-result endpoints
+Offline upload workflow
+1.0 day
+Build result parsers for your current artifact shapes
+Metrics + chart JSON populated from uploaded files
+1.0 day
+Build React shell and auth-aware layout
+Usable UI skeleton
+1.0 day
+Build Algorithms, Versions, and Training Models screens
+Core admin UI
+1.5 days
+Build Upload Results and Result Detail screens
+End-to-end v1 outcome
+1.5 days
+Add GitHub Actions, branch protection, and deployment role
+Repeatable deployment path
+0.75 day
+UAT, polish, and small hardening pass
+Production-ready internal MVP
+1.0 day
+A realistic total for a solo builder is about two to three weeks of part-time work or roughly 10–12 focused developer days.
+Local bootstrap commands
+The commands below assume you are creating a fresh repo for the website.
+mkdir algo-manager-webcd algo-manager-webgit initmkdir frontend backend infra docs scripts
+# Frontendnpm create vite@latest frontend -- --template react-tscd frontendnpm installnpm install react-router @tanstack/react-querynpm install -D tailwindcss @tailwindcss/vitenpm run dev
+# Backendcd ../backendpython -m venv .venv# macOS / Linuxsource .venv/bin/activate# Windows PowerShell# .\.venv\Scripts\Activate.ps1pip install fastapi "uvicorn[standard]" sqlalchemy alembic pymysql boto3 mangum python-multipart pydantic-settingsalembic init migrationsuvicorn app.main:app --reload
+# Infrastructurecd ../infracdk init app --language pythonpython -m venv .venv# macOS / Linuxsource .venv/bin/activate# Windows PowerShell# .\.venv\Scripts\Activate.ps1pip install aws-cdk-lib constructscdk bootstrap aws://ACCOUNT_ID/ap-southeast-2cdk synthcdk deploy AlgoManagerStack
+Suggested first-pass repo tasks
+The most immediately useful files to create are:
+File
+Purpose
+docs/architecture.md
+One-page architecture summary and service map
+docs/upload-contract.md
+Exactly which offline training files the site accepts
+docs/api.md
+Endpoint list and payload examples
+AGENTS.md
+Coding conventions and architecture guardrails for Codex
+scripts/import_algorithms.py
+Seed algorithms/versions from the existing trade engine repo
+scripts/normalize_result_bundle.py
+Strip local paths and package upload artifacts cleanly
+Sample deployment workflow skeleton
+This is the shape I would use for the production deploy workflow:
+name: deploy-prodon:  workflow_dispatch:  push:    branches: [main]permissions:  contents: read  id-token: writejobs:  deploy:    runs-on: ubuntu-latest    steps:      - uses: actions/checkout@v4      - uses: actions/setup-node@v4        with:          node-version: "22"      - uses: actions/setup-python@v5        with:          python-version: "3.12"      - name: Configure AWS credentials        uses: aws-actions/configure-aws-credentials@v4        with:          role-to-assume: arn:aws:iam::ACCOUNT_ID:role/github-actions-algo-manager-deploy          aws-region: ap-southeast-2      - name: Build frontend        run: |          cd frontend          npm ci          npm run build      - name: Install infra dependencies        run: |          cd infra          python -m pip install -r requirements.txt      - name: Deploy infrastructure        run: |          cd infra          cdk deploy --require-approval never
+Security, cost optimization, and roadmap
+Security and maintenance recommendations
+For a small internal tool, your security posture can stay simple without being casual. Cognito can handle the interactive auth flow, including MFA, managed login, and challenge handling; Secrets Manager should hold DB and other secrets; Lambda and CloudWatch give you centralized logs and metrics with very little setup; and S3 presigned uploads let you keep your result bucket private while still supporting browser uploads. [17]
+Area
+Recommendation
+Why
+Authentication
+Cognito groups: admin, editor, viewer; enable MFA at least for admins
+Good security with minimal custom code
+API authorization
+Enforce JWT validation at API Gateway; use claims/groups for route authorization
+Keeps auth concerns out of business logic where possible
+Database isolation
+New schema/database on existing RDS instance, separate DB user, same VPC, least-privilege SG rules
+Limits blast radius and simplifies permissions
+Secrets
+Store DB credentials and other secrets in Secrets Manager; do not hardcode or commit .env production values
+Safer and operationally cleaner
+Upload validation
+Accept only known artifact types; enforce file-size limits; verify checksums if practical
+Prevents junk or malformed bundles
+Result hygiene
+Strip absolute local paths from uploaded JSON before persistence
+Avoid leaking workstation internals
+Observability
+CloudWatch alarms on Lambda errors, API 5xx, failed finalization, and upload parse errors
+Lets you run this with low ops overhead
+Repo governance
+Protect main, require PR review, and keep deployment logic in GitHub Actions
+Better maintenance with little ceremony
+Cost optimization recommendations
+Recommendation
+Why it helps
+Reuse the existing RDS instance if safe
+Avoids the baseline cost of a second always-on DB
+Skip RDS Proxy in v1 unless testing shows DB-connection pressure
+Saves recurring proxy cost while usage is tiny
+Keep only one persistent AWS environment initially
+Avoids doubling infrastructure spend
+Store only metadata and summary metrics in RDS; keep artifacts in S3
+Prevents relational storage bloat
+Avoid SSR and containerized always-on web servers for v1
+Static hosting + serverless API is cheaper at your size
+Build live training later with Batch only when you need it
+Keeps v1 focused and inexpensive
+Prioritized roadmap
+Phase
+Scope
+Exit criteria
+Phase one
+Auth, Algorithms CRUD, Versions CRUD, Training Models CRUD, offline result upload, result visualization, GitHub deploy
+Internal team can manage the registry and inspect uploaded results end-to-end
+Phase one-point-five
+Import/sync from existing repo, uploader helper script in the current Python app, richer charts, artifact downloads
+Less manual effort and cleaner data quality
+Phase two
+Trigger training runs from the site, run-status tracking, job queueing, notifications
+Site can start jobs and monitor them reliably
+Phase three
+Step Functions + AWS Batch orchestration, schedule support, retention policies, compare-runs UI
+Live training from the website becomes operationally safe
+Phase four
+Approval workflows, audit views, environment promotion, advanced permissions, reusable analytics templates
+Team can scale governance without redesign
+Open questions and limitations
+Item
+Why it matters
+Exact engine/version/headroom of your current RDS instance
+Determines whether “extend existing RDS” stays the best option
+Expected size and number of uploaded artifacts per run
+Affects whether parsing can stay synchronous in Lambda
+Whether you want one persistent AWS environment or a separate dev stack
+Affects monthly cost and CI/CD shape
+Whether website users should also be allowed to create new algorithm versions directly, or only import them from the repo
+Affects source-of-truth rules between the site and codebase
+The shortest path to a strong version one is therefore: new monorepo, Python CDK, React/Vite SPA, FastAPI on Lambda, Cognito auth, existing RDS schema, S3 artifact uploads, and a deliberate upload contract that mirrors the outputs your current Python app already produces. That solution uses the uploaded application meaningfully, stays aligned with AWS and GitHub best practices, minimizes cost for a 5-user internal tool, and leaves a clean runway for live training later. [18]
+
+[1] [5] Projects in ChatGPT | OpenAI Help Center
+https://help.openai.com/en/articles/10169521-projects-in-chatgpt
+[2] https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api.html
+https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api.html
+[3] [7] https://aws.amazon.com/rds/pricing/
+https://aws.amazon.com/rds/pricing/
+[4] [9] https://docs.aws.amazon.com/step-functions/latest/dg/welcome.html
+https://docs.aws.amazon.com/step-functions/latest/dg/welcome.html
+[6] https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/GettingStarted.SimpleDistribution.html
+https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/GettingStarted.SimpleDistribution.html
+[8] https://docs.aws.amazon.com/whitepapers/latest/security-overview-amazon-api-gateway/about-amazon-api-gateway.html
+https://docs.aws.amazon.com/whitepapers/latest/security-overview-amazon-api-gateway/about-amazon-api-gateway.html
+[10] https://www.sqlalchemy.org/
+https://www.sqlalchemy.org/
+[11] https://fastapi.tiangolo.com/
+https://fastapi.tiangolo.com/
+[12] [17] https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-integrate-apps.html
+https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-integrate-apps.html
+[13] https://docs.aws.amazon.com/AmazonS3/latest/userguide/PresignedUrlUploadObject.html
+https://docs.aws.amazon.com/AmazonS3/latest/userguide/PresignedUrlUploadObject.html
+[14] https://react.dev/
+https://react.dev/
+[15] Best practices – Codex | OpenAI Developers
+https://developers.openai.com/codex/learn/best-practices
+[16] [18] https://docs.aws.amazon.com/cdk/v2/guide/home.html
+https://docs.aws.amazon.com/cdk/v2/guide/home.html

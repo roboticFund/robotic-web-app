@@ -2,7 +2,47 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  color-scheme: dark;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   margin: 0;
+  min-height: 100vh;
   font-family: Inter, system-ui, sans-serif;
+  background: radial-gradient(circle at top left, rgba(186, 85, 211, 0.12), transparent 20%),
+    radial-gradient(circle at bottom right, rgba(79, 70, 229, 0.12), transparent 18%),
+    #09071b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(219, 39, 119, 0.25);
+}
+
+input,
+textarea,
+select {
+  border-color: rgba(148, 163, 184, 0.16);
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(192, 56, 150, 0.12);
 }

@@ -33,3 +33,7 @@ This application is designed as a small internal AWS web app for managing algori
 - Scheduling and run history
 - Approval workflows and advanced permissions
 - Operational dashboards and alerts
+
+## Current development mode
+
+The application is currently being hardened locally before AWS resources are created. In this mode, SQLite and local artifact storage are supported for development convenience. The CDK stack remains a placeholder until the AWS phase begins.

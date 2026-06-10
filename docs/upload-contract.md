@@ -4,24 +4,26 @@ This document defines the offline artifact upload contract for training results 
 
 ## Accepted artifact types
 
-- `stats_csv` — summary metrics CSV
-- `raw_result_csv` — raw trade output CSV
-- `best_params_json` — optimisation parameter JSON
-- `analysis_html` — report HTML or visualization artifacts
-- `other` — any additional artifacts classified by type
+- `stats_csv` - summary metrics CSV
+- `raw_result_csv` - raw trade output CSV
+- `best_params_json` - optimisation parameter JSON
+- `analysis_html` - report HTML or visualization artifacts
+- `analysis_png` - generated chart images such as equity analysis PNGs
+- `other` - any additional artifacts classified by type
 
 ## Metadata persisted in the API
 
 The frontend should submit the following payload when finalizing an upload:
 
-- `algo_version_id` — referenced algorithm version
-- `model_id` — referenced training model
-- `run_source` — e.g. `offline_upload`
-- `status` — e.g. `completed`
+- `algo_version_id` - referenced algorithm version
+- `model_id` - referenced training model
+- `run_source` - e.g. `offline_upload`
+- `status` - one of `pending`, `completed`, or `failed`
 - `run_started_at` and `run_completed_at`
 - `data_from` and `data_to`
-- `summary` — summary metrics extracted from the uploaded artifacts
-- `artifacts` — array of artifact descriptors
+- `summary_json` - summary metrics extracted from the uploaded artifacts
+- `chart_series_json` - optional precomputed chart data for quick visualization
+- `artifacts` - array of artifact descriptors
 
 ### Artifact descriptor fields
 
@@ -32,6 +34,13 @@ The frontend should submit the following payload when finalizing an upload:
 - `byte_size`
 - `checksum_sha256`
 
-## Path hygiene
+## Path Hygiene
 
 Uploaded bundles may contain machine-specific local paths. The upload pipeline must strip absolute paths and preserve only business-relevant metadata such as file name, artifact type, and object key.
+
+The backend enforces this in two places:
+
+- `file_name` is normalized to the final basename before persistence.
+- `s3_key` must be a relative object key under `training-results/`; Windows drive paths, absolute paths, empty segments, and `..` traversal are rejected.
+
+Local development uploads are capped by `MAX_UPLOAD_BYTES`, defaulting to 250 MB.
