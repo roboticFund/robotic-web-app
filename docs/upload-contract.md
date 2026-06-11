@@ -28,6 +28,8 @@ The frontend should submit the following payload when finalizing an upload:
 
 For a normal single-algorithm result, send only `algo_version_id` or send `algo_version_ids` with one item. For combined algorithm results, send `algo_version_id` as the primary version and `algo_version_ids` with every contributing version.
 
+When `advanced_metrics.csv` is uploaded as `stats_csv`, the frontend extracts the headline metrics used by the dashboard and result pages. For combined runs it uses the total row where `Year` and `Month` are blank, `Algo` is `combined`, and `Instrument` is `MULTI`. For a single algorithm version it uses the total row where `Year` and `Month` are blank and `Algo` matches the selected algorithm code; the instrument is not filtered.
+
 A single result run can contain multiple artifacts. The upload UI supports staging multiple files at once, and it can append later uploads to a matching run when the linked versions, model, run source, and status match an existing result. API clients can also append artifacts directly with `POST /v1/training-results/{result_id}/artifacts`.
 
 Result detail pages also expose drag-and-drop boxes for missing artifact categories, such as adding a metrics CSV to a run that already has a PNG chart, or adding a chart image to a CSV-only run.

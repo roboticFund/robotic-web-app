@@ -1,6 +1,15 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { API_BASE_URL, apiDelete, apiGet, apiPatch, apiPost } from "../api/client";
+import {
+  displayMetricKey,
+  formatMetricValue,
+  inferArtifactSummary,
+  inferCsvSummary,
+  metricEntries as resultMetricEntries,
+  metricPreviewEntries,
+  type SummaryMetricContext,
+} from "../lib/resultMetrics";
 
 interface TrainingArtifact {
   id: number;
@@ -69,17 +78,6 @@ interface ResultMetadataForm {
   data_to: string;
 }
 
-const metricPriority = [
-  "total_profit",
-  "sharpe_ratio",
-  "profit_factor",
-  "max_drawdown",
-  "win_rate",
-  "win_rate_trade_level",
-  "total_trades",
-  "objective",
-];
-
 const statusOptions = ["completed", "pending", "failed"];
 
 const artifactSlots = [
@@ -132,6 +130,10 @@ function isHtmlArtifact(artifact: TrainingArtifact) {
   return artifact.content_type.includes("html") || artifact.artifact_type === "analysis_html";
 }
 
+function isStatsCsvArtifact(artifact: TrainingArtifact) {
+  return artifact.artifact_type === "stats_csv" || artifact.file_name.toLowerCase().includes("advanced_metrics");
+}
+
 function inferArtifactType(file: File) {
   const name = file.name.toLowerCase();
   const type = file.type.toLowerCase();
@@ -160,106 +162,11 @@ async function calculateSha256(file: File): Promise<string> {
     .join("");
 }
 
-function splitCsvLine(line: string) {
-  const cells: string[] = [];
-  let current = "";
-  let quoted = false;
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index];
-    if (char === '"' && line[index + 1] === '"') {
-      current += '"';
-      index += 1;
-    } else if (char === '"') {
-      quoted = !quoted;
-    } else if (char === "," && !quoted) {
-      cells.push(current.trim());
-      current = "";
-    } else {
-      current += char;
-    }
-  }
-  cells.push(current.trim());
-  return cells;
-}
-
-function coerceValue(value: string) {
-  const normalized = value.replace(/^"|"$/g, "").trim();
-  if (!normalized) return "";
-  const numeric = Number(normalized.replace(/,/g, ""));
-  return Number.isFinite(numeric) && normalized.length < 24 ? numeric : normalized;
-}
-
-function inferCsvSummary(text: string) {
-  const lines = text.split(/\r?\n/).filter((line) => line.trim()).slice(0, 80);
-  if (lines.length < 2) return {};
-  const headers = splitCsvLine(lines[0]).map((header) => header.trim());
-  const firstRow = splitCsvLine(lines[1]);
-  const metricIndex = headers.findIndex((header) => /metric|name|stat/i.test(header));
-  const valueIndex = headers.findIndex((header) => /value|result|score/i.test(header));
-  if (metricIndex >= 0 && valueIndex >= 0) {
-    return Object.fromEntries(
-      lines
-        .slice(1, 16)
-        .map((line) => splitCsvLine(line))
-        .filter((row) => row[metricIndex] && row[valueIndex] !== undefined)
-        .map((row) => [row[metricIndex].trim(), coerceValue(row[valueIndex])]),
-    );
-  }
-  return Object.fromEntries(
-    headers
-      .map((header, index) => [header, coerceValue(firstRow[index] ?? "")])
-      .filter(([header, value]) => header && value !== "")
-      .slice(0, 12),
-  );
-}
-
-async function inferSummary(file: File, artifactType: string): Promise<Record<string, unknown>> {
-  if (artifactType === "stats_csv") return inferCsvSummary(await file.text());
-  if (artifactType === "best_params_json") {
-    const parsed = JSON.parse(await file.text()) as Record<string, unknown>;
-    const params = parsed.params && typeof parsed.params === "object" ? parsed.params as Record<string, unknown> : {};
-    return {
-      ...(parsed.objective_name ? { objective_name: parsed.objective_name } : {}),
-      ...(parsed.objective !== undefined ? { objective: parsed.objective } : {}),
-      ...(parsed.best_trial_number !== undefined ? { best_trial_number: parsed.best_trial_number } : {}),
-      parameter_count: Object.keys(params).length,
-    };
-  }
-  return {};
-}
-
 function formatBytes(value?: number | null) {
   if (!value) return "-";
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function displayMetricKey(key: string) {
-  return key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function formatMetricValue(value: unknown) {
-  if (typeof value === "number") {
-    return Number.isInteger(value) ? value.toLocaleString() : value.toLocaleString(undefined, { maximumFractionDigits: 3 });
-  }
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (value === null || value === undefined || value === "") return "-";
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
-}
-
-function metricPreviewEntries(summary: Record<string, unknown>) {
-  return Object.entries(summary ?? {})
-    .filter(([, value]) => value !== null && value !== undefined && value !== "")
-    .sort(([left], [right]) => {
-      const leftIndex = metricPriority.indexOf(left);
-      const rightIndex = metricPriority.indexOf(right);
-      const leftScore = leftIndex === -1 ? 100 : leftIndex;
-      const rightScore = rightIndex === -1 ? 100 : rightIndex;
-      return leftScore - rightScore || left.localeCompare(right);
-    })
-    .slice(0, 2);
 }
 
 function toDateInput(value?: string | null) {
@@ -301,6 +208,7 @@ function ResultDetail() {
   const [isLoadingRelated, setIsLoadingRelated] = useState(false);
   const [draggingSlot, setDraggingSlot] = useState<string | null>(null);
   const [uploadingSlot, setUploadingSlot] = useState<string | null>(null);
+  const [artifactSummary, setArtifactSummary] = useState<Record<string, unknown>>({});
 
   const loadResult = useCallback(() => {
     if (!resultId) return;
@@ -390,19 +298,6 @@ function ResultDetail() {
     };
   }, [result]);
 
-  const metricEntries = useMemo(() => {
-    if (!result?.summary_json) return [];
-    return Object.entries(result.summary_json)
-      .filter(([, value]) => value !== null && value !== undefined && value !== "")
-      .sort(([left], [right]) => {
-        const leftIndex = metricPriority.indexOf(left);
-        const rightIndex = metricPriority.indexOf(right);
-        const leftScore = leftIndex === -1 ? 100 : leftIndex;
-        const rightScore = rightIndex === -1 ? 100 : rightIndex;
-        return leftScore - rightScore || left.localeCompare(right);
-      });
-  }, [result]);
-
   const primaryImage = result?.artifacts.find(isImageArtifact) ?? null;
   const primaryHtml = result?.artifacts.find(isHtmlArtifact) ?? null;
   const primaryArtifact = primaryImage ?? primaryHtml ?? result?.artifacts[0] ?? null;
@@ -410,6 +305,39 @@ function ResultDetail() {
     ? result.linked_versions
     : result ? [{ id: result.algo_version_id, algo_id: 0, version_label: `Version ${result.algo_version_id}` }] : [];
   const isCombinedResult = linkedVersions.length > 1;
+  const metricContext = useMemo<SummaryMetricContext>(() => ({
+    algoCode: isCombinedResult ? "combined" : linkedVersions[0]?.algorithm_code ?? null,
+    isCombined: isCombinedResult,
+  }), [isCombinedResult, linkedVersions]);
+  const statsCsvArtifact = result?.artifacts.find(isStatsCsvArtifact) ?? null;
+  const metricEntries = useMemo(() => resultMetricEntries({
+    ...(result?.summary_json ?? {}),
+    ...artifactSummary,
+  }), [artifactSummary, result?.summary_json]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setArtifactSummary({});
+    if (!statsCsvArtifact) return () => {
+      cancelled = true;
+    };
+
+    fetch(artifactUrl(statsCsvArtifact))
+      .then((response) => {
+        if (!response.ok) throw new Error(`Unable to fetch stats CSV: ${response.status}`);
+        return response.text();
+      })
+      .then((text) => {
+        if (!cancelled) setArtifactSummary(inferCsvSummary(text, metricContext));
+      })
+      .catch(() => {
+        if (!cancelled) setArtifactSummary({});
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [statsCsvArtifact?.s3_key, metricContext.algoCode, metricContext.isCombined]);
   const selectedModel = result?.model_id ? trainingModels.find((model) => model.id === result.model_id) : null;
   const modelDisplayName = result?.model_id
     ? selectedModel ? `${selectedModel.name} (${selectedModel.key})` : `Model ${result.model_id}`
@@ -460,7 +388,7 @@ function ResultDetail() {
           content_type: contentType,
           byte_size: file.size,
           checksum_sha256: checksumSha256,
-          summary: await inferSummary(file, artifactType).catch(() => ({})),
+          summary: await inferArtifactSummary(file, artifactType, metricContext).catch(() => ({})),
         };
       }));
 
@@ -703,7 +631,7 @@ function ResultDetail() {
                   {metricEntries.slice(0, 12).map(([key, value]) => (
                     <div key={key} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
                       <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{displayMetricKey(key)}</p>
-                      <p className="mt-2 break-words text-lg font-semibold text-slate-900">{formatMetricValue(value)}</p>
+                      <p className="mt-2 break-words text-lg font-semibold text-slate-900">{formatMetricValue(key, value)}</p>
                     </div>
                   ))}
                 </div>
@@ -901,7 +829,7 @@ function ResultDetail() {
                                   <div className="mt-2 flex flex-wrap gap-2">
                                     {previewMetrics.map(([key, value]) => (
                                       <span key={key} className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">
-                                        {displayMetricKey(key)}: {formatMetricValue(value)}
+                                        {displayMetricKey(key)}: {formatMetricValue(key, value)}
                                       </span>
                                     ))}
                                   </div>

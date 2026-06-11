@@ -33,6 +33,13 @@ export interface RoboticFundSizeState {
   status: "not_configured" | "loading" | "loaded" | "missing" | "error";
   value: string | null;
   commitDate?: string | null;
+  githubUrl?: string | null;
+}
+
+export interface GitHubVersionLink {
+  url: string;
+  label: string;
+  title: string;
 }
 
 export function hasGitHubParameterSource(version: VersionGitHubSource) {
@@ -43,6 +50,77 @@ export function hasGitHubParameterSource(version: VersionGitHubSource) {
     || version.github_repo_name
     || version.github_parameter_path,
   );
+}
+
+function cleanText(value?: string | null) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function encodeGitHubPath(path: string) {
+  return path
+    .replace(/^\/+/, "")
+    .split("/")
+    .filter(Boolean)
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+}
+
+function repositoryUrl(owner: string, repo: string) {
+  return `https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+}
+
+export function githubLinkForVersion(
+  version: VersionGitHubSource,
+  state?: RoboticFundSizeState,
+): GitHubVersionLink | null {
+  const fetchedUrl = cleanText(state?.githubUrl);
+  if (fetchedUrl) {
+    return {
+      url: fetchedUrl,
+      label: "Open file",
+      title: "Open the resolved GitHub source file",
+    };
+  }
+
+  const owner = cleanText(version.github_repo_owner);
+  const repo = cleanText(version.github_repo_name);
+  if (!owner || !repo) return null;
+
+  const baseUrl = repositoryUrl(owner, repo);
+  const commitSha = cleanText(version.git_commit_sha);
+  const ref = cleanText(version.github_ref) ?? commitSha;
+  const parameterPath = cleanText(version.github_parameter_path);
+
+  if (parameterPath) {
+    return {
+      url: `${baseUrl}/blob/${encodeURIComponent(ref ?? "HEAD")}/${encodeGitHubPath(parameterPath)}`,
+      label: "Open file",
+      title: `Open ${parameterPath} on GitHub`,
+    };
+  }
+
+  if (commitSha) {
+    return {
+      url: `${baseUrl}/commit/${encodeURIComponent(commitSha)}`,
+      label: "Open commit",
+      title: `Open commit ${commitSha} on GitHub`,
+    };
+  }
+
+  if (ref) {
+    return {
+      url: `${baseUrl}/tree/${encodeURIComponent(ref)}`,
+      label: "Open ref",
+      title: `Open ${ref} on GitHub`,
+    };
+  }
+
+  return {
+    url: baseUrl,
+    label: "Open repo",
+    title: `Open ${owner}/${repo} on GitHub`,
+  };
 }
 
 export function formatParameterValue(value: unknown) {
@@ -62,22 +140,23 @@ export function roboticFundSizeDisplay(state?: RoboticFundSizeState) {
 
 export function initialRoboticFundSizeState(version: VersionGitHubSource): RoboticFundSizeState {
   return hasGitHubParameterSource(version)
-    ? { status: "loading", value: null, commitDate: null }
-    : { status: "not_configured", value: null, commitDate: null };
+    ? { status: "loading", value: null, commitDate: null, githubUrl: null }
+    : { status: "not_configured", value: null, commitDate: null, githubUrl: null };
 }
 
 export async function fetchRoboticFundSize(version: VersionGitHubSource): Promise<RoboticFundSizeState> {
   if (!hasGitHubParameterSource(version)) {
-    return { status: "not_configured", value: null, commitDate: null };
+    return { status: "not_configured", value: null, commitDate: null, githubUrl: null };
   }
 
   try {
     const file = await apiGet<GitHubParameterFile>(`/v1/algorithm-versions/${version.id}/github-parameters`);
     const value = formatParameterValue(file.parameter_summary?.robotic_fund_size);
-    return value || file.commit_date
-      ? { status: "loaded", value, commitDate: file.commit_date ?? null }
-      : { status: "missing", value: null, commitDate: null };
+    const githubUrl = file.html_url ?? null;
+    return value || file.commit_date || githubUrl
+      ? { status: "loaded", value, commitDate: file.commit_date ?? null, githubUrl }
+      : { status: "missing", value: null, commitDate: null, githubUrl: null };
   } catch {
-    return { status: "error", value: null, commitDate: null };
+    return { status: "error", value: null, commitDate: null, githubUrl: null };
   }
 }

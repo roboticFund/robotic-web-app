@@ -4,6 +4,7 @@ import { apiGet, apiPost, apiPatch, apiDelete } from "../api/client";
 import { loadInstruments, loadResolutions } from "../lib/dropdownValues";
 import {
   fetchRoboticFundSize,
+  githubLinkForVersion,
   initialRoboticFundSizeState,
   roboticFundSizeDisplay,
   type RoboticFundSizeState,
@@ -70,6 +71,23 @@ function toDateTimeLocalValue(value?: string | null) {
 
 function effectiveFromDisplay(version: AlgorithmVersion, state?: RoboticFundSizeState) {
   return formatDateTime(version.effective_from ?? state?.commitDate);
+}
+
+function GitHubVersionLink({ version, state }: { version: AlgorithmVersion; state?: RoboticFundSizeState }) {
+  const link = githubLinkForVersion(version, state);
+  if (!link) return <span className="text-sm text-slate-500">-</span>;
+
+  return (
+    <a
+      href={link.url}
+      target="_blank"
+      rel="noreferrer"
+      title={link.title}
+      className="inline-flex whitespace-nowrap rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+    >
+      {link.label}
+    </a>
+  );
 }
 
 function Algorithms() {
@@ -436,7 +454,7 @@ function Algorithms() {
                               <span>Current</span>
                               <span>Effective from</span>
                               <span>Position size</span>
-                              <span>Commit</span>
+                              <span>GitHub</span>
                               <span>Actions</span>
                             </div>
                             <div className="divide-y divide-slate-100">
@@ -557,7 +575,9 @@ function Algorithms() {
                                       </div>
                                       <p className="text-sm text-slate-600">{effectiveFromDisplay(version, roboticFundSizes[version.id])}</p>
                                       <p className="text-sm font-semibold text-slate-700">{roboticFundSizeDisplay(roboticFundSizes[version.id])}</p>
-                                      <p className="truncate text-sm text-slate-600">{version.git_commit_sha || "-"}</p>
+                                      <div>
+                                        <GitHubVersionLink version={version} state={roboticFundSizes[version.id]} />
+                                      </div>
                                       <div className="flex flex-wrap gap-2">
                                         <Link
                                           to={`/algorithm-versions/${version.id}`}

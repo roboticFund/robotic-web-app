@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { API_BASE_URL, apiGet, apiPost } from "../api/client";
+import { displayMetricKey, formatMetricValue, inferArtifactSummary, metricEntries, type SummaryMetricContext } from "../lib/resultMetrics";
 
 interface Algorithm {
   id: number;
@@ -116,86 +117,11 @@ async function calculateSha256(file: File): Promise<string> {
     .join("");
 }
 
-function splitCsvLine(line: string) {
-  const cells: string[] = [];
-  let current = "";
-  let quoted = false;
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index];
-    if (char === '"' && line[index + 1] === '"') {
-      current += '"';
-      index += 1;
-    } else if (char === '"') {
-      quoted = !quoted;
-    } else if (char === "," && !quoted) {
-      cells.push(current.trim());
-      current = "";
-    } else {
-      current += char;
-    }
-  }
-  cells.push(current.trim());
-  return cells;
-}
-
-function coerceValue(value: string) {
-  const normalized = value.replace(/^"|"$/g, "").trim();
-  if (!normalized) return "";
-  const numeric = Number(normalized.replace(/,/g, ""));
-  return Number.isFinite(numeric) && normalized.length < 24 ? numeric : normalized;
-}
-
-function inferCsvSummary(text: string) {
-  const lines = text.split(/\r?\n/).filter((line) => line.trim()).slice(0, 80);
-  if (lines.length < 2) return {};
-
-  const headers = splitCsvLine(lines[0]).map((header) => header.trim());
-  const firstRow = splitCsvLine(lines[1]);
-  const metricIndex = headers.findIndex((header) => /metric|name|stat/i.test(header));
-  const valueIndex = headers.findIndex((header) => /value|result|score/i.test(header));
-
-  if (metricIndex >= 0 && valueIndex >= 0) {
-    return Object.fromEntries(
-      lines
-        .slice(1, 16)
-        .map((line) => splitCsvLine(line))
-        .filter((row) => row[metricIndex] && row[valueIndex] !== undefined)
-        .map((row) => [row[metricIndex].trim(), coerceValue(row[valueIndex])]),
-    );
-  }
-
-  return Object.fromEntries(
-    headers
-      .map((header, index) => [header, coerceValue(firstRow[index] ?? "")])
-      .filter(([header, value]) => header && value !== "")
-      .slice(0, 12),
-  );
-}
-
-async function inferSummary(file: File, artifactType: string): Promise<Record<string, unknown>> {
-  if (artifactType === "stats_csv") return inferCsvSummary(await file.text());
-  if (artifactType === "best_params_json") {
-    const parsed = JSON.parse(await file.text()) as Record<string, unknown>;
-    const params = parsed.params && typeof parsed.params === "object" ? parsed.params as Record<string, unknown> : {};
-    return {
-      ...(parsed.objective_name ? { objective_name: parsed.objective_name } : {}),
-      ...(parsed.objective !== undefined ? { objective: parsed.objective } : {}),
-      ...(parsed.best_trial_number !== undefined ? { best_trial_number: parsed.best_trial_number } : {}),
-      parameter_count: Object.keys(params).length,
-    };
-  }
-  return {};
-}
-
 function formatBytes(value?: number | null) {
   if (!value) return "-";
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function displayMetricKey(key: string) {
-  return key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function sameNumberSet(left: number[], right: number[]) {
@@ -289,6 +215,10 @@ function UploadResults() {
   const selectedPriorCount = selectedVersions.filter((option) => !option.isCurrent).length;
   const isCombinedResult = selectedVersionIds.length > 1;
   const selectedVersionId = selectedVersionIds[0] ?? null;
+  const metricContext = useMemo<SummaryMetricContext>(() => ({
+    algoCode: isCombinedResult ? "combined" : primaryVersion?.algorithmCode ?? null,
+    isCombined: isCombinedResult,
+  }), [isCombinedResult, primaryVersion?.algorithmCode]);
 
   const versionLabelById = useMemo(
     () => Object.fromEntries(versionOptions.map((option) => [option.id, option])),
@@ -330,7 +260,7 @@ function UploadResults() {
   const summaryPreview = useMemo(() => {
     try {
       const parsed = JSON.parse(summaryJson || "{}") as Record<string, unknown>;
-      return Object.entries(parsed).slice(0, 6);
+      return metricEntries(parsed, 9);
     } catch {
       return [];
     }
@@ -373,7 +303,7 @@ function UploadResults() {
       const artifactType = inferArtifactType(file);
       let summary: Record<string, unknown> = {};
       try {
-        summary = await inferSummary(file, artifactType);
+        summary = await inferArtifactSummary(file, artifactType, metricContext);
       } catch {
         summary = {};
       }
@@ -735,7 +665,7 @@ function UploadResults() {
               {summaryPreview.map(([key, value]) => (
                 <div key={key} className="rounded-lg bg-white px-3 py-2 shadow-sm">
                   <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{displayMetricKey(key)}</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">{String(value)}</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{formatMetricValue(key, value)}</p>
                 </div>
               ))}
             </div>

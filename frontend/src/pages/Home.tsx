@@ -6,6 +6,7 @@ import {
   roboticFundSizeDisplay,
   type VersionGitHubSource,
 } from "../lib/githubParameters";
+import { displayMetricKey, formatMetricValue, inferCsvSummary, metricEntries, type SummaryMetricContext } from "../lib/resultMetrics";
 
 interface Algorithm {
   id: number;
@@ -65,44 +66,6 @@ interface AlgorithmRow {
 
 type DashboardTab = "chart" | "stats" | "algorithms";
 
-const metricPriority = [
-  "total_profit",
-  "sharpe_ratio",
-  "profit_factor",
-  "max_drawdown",
-  "win_rate",
-  "win_rate_trade_level",
-  "total_trades",
-  "objective",
-];
-
-function displayMetricKey(key: string) {
-  return key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function formatMetricValue(value: unknown) {
-  if (typeof value === "number") {
-    return Number.isInteger(value) ? value.toLocaleString() : value.toLocaleString(undefined, { maximumFractionDigits: 3 });
-  }
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (value === null || value === undefined || value === "") return "-";
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
-}
-
-function metricPreviewEntries(summary: Record<string, unknown>) {
-  return Object.entries(summary ?? {})
-    .filter(([, value]) => value !== null && value !== undefined && value !== "")
-    .sort(([left], [right]) => {
-      const leftIndex = metricPriority.indexOf(left);
-      const rightIndex = metricPriority.indexOf(right);
-      const leftScore = leftIndex === -1 ? 100 : leftIndex;
-      const rightScore = rightIndex === -1 ? 100 : rightIndex;
-      return leftScore - rightScore || left.localeCompare(right);
-    })
-    .slice(0, 4);
-}
-
 function formatDateTime(value?: string | null) {
   if (!value) return "-";
   return new Date(value).toLocaleString();
@@ -134,6 +97,10 @@ function isImageArtifact(artifact: TrainingArtifact) {
   return artifact.content_type.startsWith("image/") || artifact.artifact_type === "analysis_png";
 }
 
+function isStatsCsvArtifact(artifact: TrainingArtifact) {
+  return artifact.artifact_type === "stats_csv" || artifact.file_name.toLowerCase().includes("advanced_metrics");
+}
+
 function versionNumberParts(versionLabel: string) {
   return (versionLabel.match(/\d+/g) ?? []).map((part) => Number(part));
 }
@@ -154,6 +121,7 @@ function compareVersionLabelsNewestFirst(left: AlgorithmVersion, right: Algorith
 function Home() {
   const [algorithms, setAlgorithms] = useState<AlgorithmRow[]>([]);
   const [dashboardResult, setDashboardResult] = useState<TrainingResult | null>(null);
+  const [dashboardArtifactSummary, setDashboardArtifactSummary] = useState<Record<string, unknown>>({});
   const [activeTab, setActiveTab] = useState<DashboardTab>("chart");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -218,10 +186,42 @@ function Home() {
     };
   }, []);
 
-  const dashboardMetrics = metricPreviewEntries(dashboardResult?.summary_json ?? {});
   const dashboardVersions = dashboardResult?.linked_versions ?? [];
+  const dashboardMetricContext: SummaryMetricContext = {
+    algoCode: dashboardVersions.length > 1 ? "combined" : dashboardVersions[0]?.algorithm_code ?? null,
+    isCombined: dashboardVersions.length > 1,
+  };
   const dashboardRunDate = dashboardResult?.run_started_at ?? dashboardResult?.run_completed_at ?? dashboardResult?.created_at ?? null;
   const dashboardChart = dashboardResult?.artifacts.find(isImageArtifact) ?? null;
+  const dashboardStatsCsv = dashboardResult?.artifacts.find(isStatsCsvArtifact) ?? null;
+  const dashboardMetrics = metricEntries({
+    ...(dashboardResult?.summary_json ?? {}),
+    ...dashboardArtifactSummary,
+  }, 9);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDashboardArtifactSummary({});
+    if (!dashboardStatsCsv) return () => {
+      cancelled = true;
+    };
+
+    fetch(artifactUrl(dashboardStatsCsv))
+      .then((response) => {
+        if (!response.ok) throw new Error(`Unable to fetch stats CSV: ${response.status}`);
+        return response.text();
+      })
+      .then((text) => {
+        if (!cancelled) setDashboardArtifactSummary(inferCsvSummary(text, dashboardMetricContext));
+      })
+      .catch(() => {
+        if (!cancelled) setDashboardArtifactSummary({});
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dashboardStatsCsv?.s3_key, dashboardMetricContext.algoCode, dashboardMetricContext.isCombined]);
 
   return (
     <main className="mx-auto w-full max-w-[1900px] space-y-3">
@@ -339,7 +339,7 @@ function Home() {
                   {dashboardMetrics.length ? dashboardMetrics.map(([key, value]) => (
                     <div key={key} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                       <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{displayMetricKey(key)}</p>
-                      <p className="mt-1 break-words text-sm font-semibold text-slate-900">{formatMetricValue(value)}</p>
+                      <p className="mt-1 break-words text-sm font-semibold text-slate-900">{formatMetricValue(key, value)}</p>
                     </div>
                   )) : (
                     <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-500 sm:col-span-2 xl:col-span-4">

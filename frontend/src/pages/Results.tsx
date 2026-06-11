@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiDelete, apiGet, apiPost } from "../api/client";
+import { displayMetricKey, formatMetricValue, metricPreviewEntries } from "../lib/resultMetrics";
 
 interface Algorithm {
   id: number;
@@ -66,44 +67,6 @@ interface VersionOption {
   isCurrent: boolean;
   isActive: boolean;
   createdAt?: string;
-}
-
-const metricPriority = [
-  "total_profit",
-  "sharpe_ratio",
-  "profit_factor",
-  "max_drawdown",
-  "win_rate",
-  "win_rate_trade_level",
-  "total_trades",
-  "objective",
-];
-
-function displayMetricKey(key: string) {
-  return key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function formatMetricValue(value: unknown) {
-  if (typeof value === "number") {
-    return Number.isInteger(value) ? value.toLocaleString() : value.toLocaleString(undefined, { maximumFractionDigits: 3 });
-  }
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (value === null || value === undefined || value === "") return "-";
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
-}
-
-function metricPreviewEntries(summary: Record<string, unknown>) {
-  return Object.entries(summary ?? {})
-    .filter(([, value]) => value !== null && value !== undefined && value !== "")
-    .sort(([left], [right]) => {
-      const leftIndex = metricPriority.indexOf(left);
-      const rightIndex = metricPriority.indexOf(right);
-      const leftScore = leftIndex === -1 ? 100 : leftIndex;
-      const rightScore = rightIndex === -1 ? 100 : rightIndex;
-      return leftScore - rightScore || left.localeCompare(right);
-    })
-    .slice(0, 3);
 }
 
 function formatDateTime(value?: string | null) {
@@ -625,7 +588,7 @@ function Results() {
                         <div className="flex flex-wrap gap-1">
                           {previewMetrics.map(([key, value]) => (
                             <span key={key} className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600">
-                              {displayMetricKey(key)}: {formatMetricValue(value)}
+                              {displayMetricKey(key)}: {formatMetricValue(key, value)}
                             </span>
                           ))}
                         </div>

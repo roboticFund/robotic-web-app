@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { apiGet, apiPost, apiPatch, apiDelete } from "../api/client";
 import {
   fetchRoboticFundSize,
+  githubLinkForVersion,
   initialRoboticFundSizeState,
   roboticFundSizeDisplay,
   type RoboticFundSizeState,
@@ -111,6 +112,23 @@ function AlgorithmVersions() {
   const effectiveFromDisplay = (version: AlgorithmVersion) => (
     formatDateTime(version.effective_from ?? roboticFundSizes[version.id]?.commitDate)
   );
+
+  const githubLinkCell = (version: AlgorithmVersion) => {
+    const link = githubLinkForVersion(version, roboticFundSizes[version.id]);
+    if (!link) return <span className="text-sm text-slate-500">-</span>;
+
+    return (
+      <a
+        href={link.url}
+        target="_blank"
+        rel="noreferrer"
+        title={link.title}
+        className="inline-flex whitespace-nowrap rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+      >
+        {link.label}
+      </a>
+    );
+  };
 
   useEffect(() => {
     apiGet<Algorithm[]>("/v1/algorithms/")
@@ -454,7 +472,7 @@ function AlgorithmVersions() {
                     <th className="px-3 py-2 text-left text-sm font-semibold text-slate-700">Current</th>
                     <th className="px-3 py-2 text-left text-sm font-semibold text-slate-700">Effective from</th>
                     <th className="px-3 py-2 text-left text-sm font-semibold text-slate-700">Position size</th>
-                    <th className="px-3 py-2 text-left text-sm font-semibold text-slate-700">Commit</th>
+                    <th className="px-3 py-2 text-left text-sm font-semibold text-slate-700">GitHub</th>
                     <th className="px-3 py-2 text-left text-sm font-semibold text-slate-700">Actions</th>
                   </tr>
                 </thead>
@@ -477,7 +495,7 @@ function AlgorithmVersions() {
                       <td className="px-3 py-2 text-sm font-semibold text-slate-700">
                         {roboticFundSizeDisplay(roboticFundSizes[version.id])}
                       </td>
-                      <td className="px-3 py-2 text-sm text-slate-700">{version.git_commit_sha ?? "—"}</td>
+                      <td className="px-3 py-2 text-sm text-slate-700">{githubLinkCell(version)}</td>
                       <td className="px-3 py-2 text-sm flex flex-wrap gap-2">
                         <button
                           type="button"
