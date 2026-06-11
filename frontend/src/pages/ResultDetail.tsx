@@ -56,6 +56,7 @@ interface TrainingResult {
   data_to?: string | null;
   summary_json: Record<string, unknown>;
   chart_series_json?: Record<string, unknown>;
+  is_dashboard_latest?: boolean;
   artifacts: TrainingArtifact[];
 }
 
@@ -296,6 +297,7 @@ function ResultDetail() {
   const [metadataForm, setMetadataForm] = useState<ResultMetadataForm | null>(null);
   const [isEditingMetadata, setIsEditingMetadata] = useState(false);
   const [isSavingMetadata, setIsSavingMetadata] = useState(false);
+  const [isSavingDashboardResult, setIsSavingDashboardResult] = useState(false);
   const [isLoadingRelated, setIsLoadingRelated] = useState(false);
   const [draggingSlot, setDraggingSlot] = useState<string | null>(null);
   const [uploadingSlot, setUploadingSlot] = useState<string | null>(null);
@@ -509,6 +511,26 @@ function ResultDetail() {
     }
   };
 
+  const toggleDashboardResult = async () => {
+    if (!result) return;
+    setIsSavingDashboardResult(true);
+    setActionMessage(null);
+    setError(null);
+    try {
+      const updated = result.is_dashboard_latest
+        ? await apiDelete<TrainingResult>(`/v1/training-results/${result.id}/dashboard-latest`)
+        : await apiPost<TrainingResult>(`/v1/training-results/${result.id}/dashboard-latest`, {});
+      setResult(updated);
+      setActionMessage(updated.is_dashboard_latest
+        ? `Result #${updated.id} will appear on the dashboard.`
+        : `Result #${updated.id} removed from the dashboard.`);
+    } catch (err: any) {
+      setError(err?.message ?? "Unable to update dashboard result.");
+    } finally {
+      setIsSavingDashboardResult(false);
+    }
+  };
+
   const startEditingMetadata = () => {
     if (!result) return;
     setMetadataForm(resultToMetadataForm(result));
@@ -580,6 +602,11 @@ function ResultDetail() {
                   {linkedVersions.length} versions
                 </span>
               ) : null}
+              {result.is_dashboard_latest ? (
+                <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">
+                  Dashboard
+                </span>
+              ) : null}
               </>
             ) : null}
           </div>
@@ -594,6 +621,24 @@ function ResultDetail() {
             >
               Open primary artifact
             </a>
+          ) : null}
+          {result ? (
+            <button
+              type="button"
+              onClick={toggleDashboardResult}
+              disabled={isSavingDashboardResult}
+              className={`inline-flex h-10 items-center justify-center rounded-lg border px-4 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-70 ${
+                result.is_dashboard_latest
+                  ? "border-slate-300 bg-slate-900 text-white hover:bg-slate-700"
+                  : "border-slate-300 bg-white text-slate-900 hover:bg-slate-50"
+              }`}
+            >
+              {isSavingDashboardResult
+                ? "Saving..."
+                : result.is_dashboard_latest
+                  ? "On dashboard"
+                  : "Show on dashboard"}
+            </button>
           ) : null}
           {result ? (
             <button
@@ -792,6 +837,7 @@ function ResultDetail() {
                   </div>
                   <div className="flex justify-between gap-4"><span className="text-slate-500">Model</span><span className="text-right font-medium text-slate-900">{modelDisplayName}</span></div>
                   <div className="flex justify-between gap-4"><span className="text-slate-500">Source</span><span className="font-medium text-slate-900">{result.run_source}</span></div>
+                  <div className="flex justify-between gap-4"><span className="text-slate-500">Dashboard</span><span className="font-medium text-slate-900">{result.is_dashboard_latest ? "Yes" : "No"}</span></div>
                   <div className="flex justify-between gap-4"><span className="text-slate-500">Run date</span><span className="font-medium text-slate-900">{runDate ? new Date(runDate).toLocaleDateString() : "-"}</span></div>
                   <div className="flex justify-between gap-4"><span className="text-slate-500">Data from</span><span className="font-medium text-slate-900">{result.data_from ? new Date(result.data_from).toLocaleDateString() : "-"}</span></div>
                   <div className="flex justify-between gap-4"><span className="text-slate-500">Data to</span><span className="font-medium text-slate-900">{result.data_to ? new Date(result.data_to).toLocaleDateString() : "-"}</span></div>

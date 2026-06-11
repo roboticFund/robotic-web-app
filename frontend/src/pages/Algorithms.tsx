@@ -1,6 +1,14 @@
 import { Fragment, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { apiGet, apiPost, apiPatch, apiDelete } from "../api/client";
 import { loadInstruments, loadResolutions } from "../lib/dropdownValues";
+import {
+  fetchRoboticFundSize,
+  initialRoboticFundSizeState,
+  roboticFundSizeDisplay,
+  type RoboticFundSizeState,
+  type VersionGitHubSource,
+} from "../lib/githubParameters";
 
 interface Algorithm {
   id: number;
@@ -11,24 +19,58 @@ interface Algorithm {
   is_active: boolean;
 }
 
-interface AlgorithmVersion {
+interface AlgorithmVersion extends VersionGitHubSource {
   id: number;
   version_label: string;
-  description?: string;
-  parameter_set_json?: Record<string, unknown>;
-  git_commit_sha?: string;
+  description?: string | null;
+  git_commit_sha?: string | null;
+  github_repo_owner?: string | null;
+  github_repo_name?: string | null;
+  github_parameter_path?: string | null;
+  github_ref?: string | null;
+  effective_from?: string | null;
   is_current: boolean;
   is_active: boolean;
-  created_at: string;
 }
 
 const emptyVersionForm = {
   version_label: "",
   description: "",
   git_commit_sha: "",
+  github_repo_owner: "",
+  github_repo_name: "",
+  github_parameter_path: "",
+  github_ref: "",
+  effective_from: "",
   is_current: false,
-  parameter_set_json: "{}",
 };
+
+function nullableText(value: string) {
+  const normalized = value.trim();
+  return normalized ? normalized : null;
+}
+
+function nullableDateTime(value: string) {
+  const normalized = value.trim();
+  return normalized ? normalized : null;
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "-";
+  return new Date(value).toLocaleString();
+}
+
+function toDateTimeLocalValue(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return localDate.toISOString().slice(0, 16);
+}
+
+function effectiveFromDisplay(version: AlgorithmVersion, state?: RoboticFundSizeState) {
+  return formatDateTime(version.effective_from ?? state?.commitDate);
+}
 
 function Algorithms() {
   const [algorithms, setAlgorithms] = useState<Algorithm[]>([]);
@@ -39,6 +81,7 @@ function Algorithms() {
   const [expandedAlgorithmId, setExpandedAlgorithmId] = useState<number | null>(null);
   const [versionsByAlgorithm, setVersionsByAlgorithm] = useState<Record<number, AlgorithmVersion[]>>({});
   const [versionsLoadingByAlgorithm, setVersionsLoadingByAlgorithm] = useState<Record<number, boolean>>({});
+  const [roboticFundSizes, setRoboticFundSizes] = useState<Record<number, RoboticFundSizeState>>({});
   const [editingVersionId, setEditingVersionId] = useState<number | null>(null);
   const [versionFormState, setVersionFormState] = useState(emptyVersionForm);
   const [formState, setFormState] = useState({
@@ -54,11 +97,28 @@ function Algorithms() {
       .catch((err) => setError(err.message));
   };
 
+  const loadRoboticFundSizes = async (versions: AlgorithmVersion[]) => {
+    if (!versions.length) return;
+    setRoboticFundSizes((current) => ({
+      ...current,
+      ...Object.fromEntries(versions.map((version) => [version.id, initialRoboticFundSizeState(version)])),
+    }));
+
+    const entries = await Promise.all(
+      versions.map(async (version) => [version.id, await fetchRoboticFundSize(version)] as const),
+    );
+    setRoboticFundSizes((current) => ({
+      ...current,
+      ...Object.fromEntries(entries),
+    }));
+  };
+
   const loadVersionsForAlgorithm = async (algorithmId: number) => {
     setVersionsLoadingByAlgorithm((current) => ({ ...current, [algorithmId]: true }));
     try {
       const data = await apiGet<AlgorithmVersion[]>(`/v1/algorithms/${algorithmId}/versions`);
       setVersionsByAlgorithm((current) => ({ ...current, [algorithmId]: data }));
+      loadRoboticFundSizes(data);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -153,8 +213,12 @@ function Algorithms() {
       version_label: version.version_label,
       description: version.description ?? "",
       git_commit_sha: version.git_commit_sha ?? "",
+      github_repo_owner: version.github_repo_owner ?? "",
+      github_repo_name: version.github_repo_name ?? "",
+      github_parameter_path: version.github_parameter_path ?? "",
+      github_ref: version.github_ref ?? "",
+      effective_from: toDateTimeLocalValue(version.effective_from),
       is_current: version.is_current,
-      parameter_set_json: JSON.stringify(version.parameter_set_json ?? {}, null, 2),
     });
   };
 
@@ -168,21 +232,17 @@ function Algorithms() {
     if (!editingVersionId) return;
     setError(null);
 
-    let parameterSetJson: Record<string, unknown> = {};
-    try {
-      parameterSetJson = JSON.parse(versionFormState.parameter_set_json || "{}") as Record<string, unknown>;
-    } catch {
-      setError("Parameter set JSON must be valid JSON.");
-      return;
-    }
-
     try {
       await apiPatch(`/v1/algorithm-versions/${editingVersionId}`, {
         version_label: versionFormState.version_label,
-        description: versionFormState.description || undefined,
-        git_commit_sha: versionFormState.git_commit_sha || undefined,
+        description: nullableText(versionFormState.description),
+        git_commit_sha: nullableText(versionFormState.git_commit_sha),
+        github_repo_owner: nullableText(versionFormState.github_repo_owner),
+        github_repo_name: nullableText(versionFormState.github_repo_name),
+        github_parameter_path: nullableText(versionFormState.github_parameter_path),
+        github_ref: nullableText(versionFormState.github_ref),
+        effective_from: nullableDateTime(versionFormState.effective_from),
         is_current: versionFormState.is_current,
-        parameter_set_json: parameterSetJson,
       });
       cancelVersionEdit();
       loadVersionsForAlgorithm(algorithmId);
@@ -371,9 +431,11 @@ function Algorithms() {
                           <p className="text-sm text-slate-500">Loading versions...</p>
                         ) : versions.length ? (
                           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-                            <div className="grid grid-cols-[minmax(0,1.5fr)_110px_minmax(0,1fr)_190px] gap-3 border-b border-slate-200 bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700">
+                            <div className="grid grid-cols-[minmax(0,1.3fr)_100px_150px_120px_minmax(0,1fr)_240px] gap-3 border-b border-slate-200 bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700">
                               <span>Version</span>
                               <span>Current</span>
+                              <span>Effective from</span>
+                              <span>Position size</span>
                               <span>Commit</span>
                               <span>Actions</span>
                             </div>
@@ -399,6 +461,15 @@ function Algorithms() {
                                           className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-900 focus:outline-none"
                                         />
                                       </label>
+                                      <label className="block">
+                                        <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Effective from</span>
+                                        <input
+                                          type="datetime-local"
+                                          value={versionFormState.effective_from}
+                                          onChange={(event) => setVersionFormState({ ...versionFormState, effective_from: event.target.value })}
+                                          className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-900 focus:outline-none"
+                                        />
+                                      </label>
                                       <label className="block lg:col-span-2">
                                         <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Description</span>
                                         <textarea
@@ -408,14 +479,48 @@ function Algorithms() {
                                           rows={2}
                                         />
                                       </label>
-                                      <label className="block lg:col-span-2">
-                                        <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Parameter set JSON</span>
-                                        <textarea
-                                          value={versionFormState.parameter_set_json}
-                                          onChange={(event) => setVersionFormState({ ...versionFormState, parameter_set_json: event.target.value })}
-                                          className="mt-2 min-h-28 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 focus:border-slate-900 focus:outline-none"
-                                        />
-                                      </label>
+                                      <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 lg:col-span-2 lg:grid-cols-2">
+                                        <div className="lg:col-span-2">
+                                          <h4 className="text-sm font-semibold text-slate-900">GitHub parameter source</h4>
+                                          <p className="mt-1 text-xs text-slate-500">Leave the path blank to use the backend template for this algorithm/version.</p>
+                                        </div>
+                                        <label className="block">
+                                          <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Repository owner</span>
+                                          <input
+                                            value={versionFormState.github_repo_owner}
+                                            onChange={(event) => setVersionFormState({ ...versionFormState, github_repo_owner: event.target.value })}
+                                            placeholder="roboticFund"
+                                            className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-900 focus:outline-none"
+                                          />
+                                        </label>
+                                        <label className="block">
+                                          <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Repository name</span>
+                                          <input
+                                            value={versionFormState.github_repo_name}
+                                            onChange={(event) => setVersionFormState({ ...versionFormState, github_repo_name: event.target.value })}
+                                            placeholder="trade-engine"
+                                            className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-900 focus:outline-none"
+                                          />
+                                        </label>
+                                        <label className="block">
+                                          <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Parameter file path</span>
+                                          <input
+                                            value={versionFormState.github_parameter_path}
+                                            onChange={(event) => setVersionFormState({ ...versionFormState, github_parameter_path: event.target.value })}
+                                            placeholder="resources/algorithms/algo1/algo_params.py"
+                                            className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-900 focus:outline-none"
+                                          />
+                                        </label>
+                                        <label className="block">
+                                          <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">GitHub ref</span>
+                                          <input
+                                            value={versionFormState.github_ref}
+                                            onChange={(event) => setVersionFormState({ ...versionFormState, github_ref: event.target.value })}
+                                            placeholder="branch, tag, or commit"
+                                            className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-900 focus:outline-none"
+                                          />
+                                        </label>
+                                      </div>
                                       <div className="flex flex-wrap items-center justify-between gap-3 lg:col-span-2">
                                         <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
                                           <input
@@ -437,10 +542,11 @@ function Algorithms() {
                                       </div>
                                     </form>
                                   ) : (
-                                    <div className="grid grid-cols-[minmax(0,1.5fr)_110px_minmax(0,1fr)_190px] gap-3">
+                                    <div className="grid grid-cols-[minmax(0,1.3fr)_100px_150px_120px_minmax(0,1fr)_240px] gap-3">
                                       <div className="min-w-0">
                                         <p className="truncate text-sm font-semibold text-slate-900">{version.version_label}</p>
                                         {version.description ? <p className="mt-1 text-sm text-slate-500">{version.description}</p> : null}
+                                        {version.github_parameter_path ? <p className="mt-1 truncate font-mono text-xs text-slate-500">{version.github_parameter_path}</p> : null}
                                       </div>
                                       <div>
                                         <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${
@@ -449,8 +555,16 @@ function Algorithms() {
                                           {version.is_current ? "Current" : "Prior"}
                                         </span>
                                       </div>
+                                      <p className="text-sm text-slate-600">{effectiveFromDisplay(version, roboticFundSizes[version.id])}</p>
+                                      <p className="text-sm font-semibold text-slate-700">{roboticFundSizeDisplay(roboticFundSizes[version.id])}</p>
                                       <p className="truncate text-sm text-slate-600">{version.git_commit_sha || "-"}</p>
                                       <div className="flex flex-wrap gap-2">
+                                        <Link
+                                          to={`/algorithm-versions/${version.id}`}
+                                          className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm text-slate-700 hover:bg-slate-100"
+                                        >
+                                          Details
+                                        </Link>
                                         <button
                                           type="button"
                                           onClick={() => handleVersionEdit(version)}

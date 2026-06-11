@@ -1,3 +1,5 @@
+import re
+
 from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
@@ -21,6 +23,31 @@ DEFAULT_ADMIN_OPTIONS = {
     "instrument": ["EURUSD", "BTCUSD", "AAPL", "ETHUSD", "GOLD"],
     "resolution": ["1m", "5m", "15m", "1h", "1d", "MINUTE_15"],
 }
+
+
+def _version_number_parts(version_label: str | None) -> tuple[int, ...]:
+    return tuple(int(part) for part in re.findall(r"\d+", version_label or ""))
+
+
+def _order_algorithm_versions(versions: list[models.AlgorithmVersion]) -> list[models.AlgorithmVersion]:
+    version_parts = {
+        version.id: _version_number_parts(version.version_label)
+        for version in versions
+    }
+    max_part_count = max((len(parts) for parts in version_parts.values()), default=0)
+
+    def sort_key(version: models.AlgorithmVersion):
+        parts = version_parts.get(version.id, ())
+        padded_parts = parts + (0,) * (max_part_count - len(parts))
+        return (
+            0 if version.is_current else 1,
+            0 if parts else 1,
+            tuple(-part for part in padded_parts),
+            (version.version_label or "").lower(),
+            -(version.id or 0),
+        )
+
+    return sorted(versions, key=sort_key)
 
 
 def _list_training_results_by_ordered_ids(db: Session, result_ids: list[int]):
@@ -111,7 +138,7 @@ def list_algorithm_versions(db: Session, algorithm_id: int, include_inactive: bo
     query = db.query(models.AlgorithmVersion).filter(models.AlgorithmVersion.algo_id == algorithm_id)
     if not include_inactive:
         query = query.filter(models.AlgorithmVersion.is_active == True)
-    return query.order_by(models.AlgorithmVersion.created_at.desc()).all()
+    return _order_algorithm_versions(query.all())
 
 
 def get_algorithm_version(db: Session, version_id: int):
@@ -132,7 +159,7 @@ def update_algorithm_version(db: Session, version_id: int, version_update: Algor
     version = get_algorithm_version(db, version_id)
     if not version:
         return None
-    update_data = version_update.model_dump(exclude_none=True)
+    update_data = version_update.model_dump(exclude_unset=True)
     if update_data.get("is_current"):
         db.query(models.AlgorithmVersion).filter(models.AlgorithmVersion.algo_id == version.algo_id).update({"is_current": False})
     for field, value in update_data.items():
@@ -229,6 +256,7 @@ def list_training_results(
     status: str | None = None,
     run_source: str | None = None,
     combined_only: bool = False,
+    dashboard_latest: bool | None = None,
 ):
     query = db.query(models.TrainingResult)
 
@@ -273,6 +301,8 @@ def list_training_results(
         query = query.filter(models.TrainingResult.status == status)
     if run_source:
         query = query.filter(models.TrainingResult.run_source == run_source)
+    if dashboard_latest is not None:
+        query = query.filter(models.TrainingResult.is_dashboard_latest == dashboard_latest)
 
     result_ids = [
         row.id
@@ -286,6 +316,15 @@ def list_training_results(
         )
     ]
     return _list_training_results_by_ordered_ids(db, result_ids)
+
+
+def get_dashboard_training_result(db: Session):
+    return (
+        db.query(models.TrainingResult)
+        .filter(models.TrainingResult.is_dashboard_latest == True)
+        .order_by(models.TrainingResult.updated_at.desc(), models.TrainingResult.id.desc())
+        .first()
+    )
 
 
 def list_training_results_for_version(db: Session, algo_version_id: int, skip: int = 0, limit: int = 50):
@@ -310,6 +349,31 @@ def list_training_results_for_version(db: Session, algo_version_id: int, skip: i
 
 def get_training_result(db: Session, result_id: int):
     return db.query(models.TrainingResult).filter(models.TrainingResult.id == result_id).first()
+
+
+def mark_training_result_dashboard_latest(db: Session, result_id: int):
+    result = get_training_result(db, result_id)
+    if not result:
+        return None
+    (
+        db.query(models.TrainingResult)
+        .filter(models.TrainingResult.id != result_id, models.TrainingResult.is_dashboard_latest == True)
+        .update({"is_dashboard_latest": False}, synchronize_session=False)
+    )
+    result.is_dashboard_latest = True
+    db.commit()
+    db.refresh(result)
+    return result
+
+
+def clear_training_result_dashboard_latest(db: Session, result_id: int):
+    result = get_training_result(db, result_id)
+    if not result:
+        return None
+    result.is_dashboard_latest = False
+    db.commit()
+    db.refresh(result)
+    return result
 
 
 def update_training_result(db: Session, result_id: int, payload: TrainingResultUpdate):

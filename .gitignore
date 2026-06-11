@@ -46,4 +46,6 @@ amplifytools.xcconfig
 *.log
 *.sqlite
 *.db
+*.db-journal
 backend/storage/
+backupenvsettings.gitignore

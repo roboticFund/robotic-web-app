@@ -37,6 +37,16 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 - `MAX_UPLOAD_BYTES` defaults to 250 MB.
 - Uploaded filenames are normalized to basenames, and artifact keys must stay under `training-results/`.
 
+## GitHub Parameter Files
+
+- Algorithm versions can point at a GitHub repository file with repository owner, repository name, file path, and optional ref.
+- Set `GITHUB_TOKEN` in `.env` when private repositories are needed.
+- Set `GITHUB_REPO_OWNER` and `GITHUB_REPO_NAME` in `.env` to use one default algorithm repository for every version.
+- `GITHUB_PARAMETER_PATH_TEMPLATE` defaults to `resources/algorithms/{algorithm_code_lower}/algo_params.py`; version-level paths override this when a file lives somewhere else.
+- Supported template fields include `algorithm_id`, `algorithm_code`, `algorithm_code_lower`, `algorithm_name`, `algorithm_name_lower`, `instrument`, `instrument_lower`, `resolution`, `resolution_lower`, `version_id`, `version_label`, `version_label_lower`, and `git_commit_sha`.
+- JSON parameter files are parsed for display. Python `algo_params.py` files are parsed when they contain a literal `algo_params` dictionary, and the API derives `parameter_summary.robotic_fund_size` from the `ig-robotic-fund` account entry.
+- The GitHub parameter response includes `commit_date` when GitHub can resolve the version ref or commit SHA. Algorithm versions also have an optional `effective_from` field for manually recording when a version was implemented.
+
 ## Database
 
 The default development database is SQLite at `./dev.db` via `DATABASE_URL=sqlite:///./dev.db`.

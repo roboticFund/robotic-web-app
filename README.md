@@ -17,6 +17,8 @@ This repository is being rebuilt as a new AWS-backed web application for the `tr
 ```powershell
 cd backend
 python -m venv .venv
+# Run once if PowerShell blocks virtualenv activation scripts.
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 copy .env.example .env

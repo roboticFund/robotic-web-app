@@ -15,7 +15,7 @@ function Layout({ children }: LayoutProps) {
           <Sidebar />
           <div className="flex-1">
             <Topbar />
-            <main className="px-6 pb-10 pt-6">{children}</main>
+            <main className="px-5 pb-8 pt-4">{children}</main>
           </div>
         </div>
       </div>

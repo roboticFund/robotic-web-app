@@ -40,6 +40,7 @@ def list_results(
     status: str | None = None,
     run_source: str | None = None,
     combined_only: bool = False,
+    dashboard_latest: bool | None = None,
     db: Session = Depends(get_db),
 ):
     if status and status not in ALLOWED_RESULT_STATUSES:
@@ -54,6 +55,7 @@ def list_results(
         status=status,
         run_source=run_source,
         combined_only=combined_only,
+        dashboard_latest=dashboard_latest,
     )
 
 
@@ -79,6 +81,11 @@ def get_artifact(artifact_key: str):
     return FileResponse(target)
 
 
+@router.get("/dashboard/latest", response_model=TrainingResultRead | None)
+def get_dashboard_result(db: Session = Depends(get_db)):
+    return crud.get_dashboard_training_result(db)
+
+
 @router.post("/", response_model=TrainingResultRead)
 def create_result(payload: TrainingResultCreate, db: Session = Depends(get_db)):
     if not crud.get_algorithm_version(db, payload.algo_version_id):
@@ -101,6 +108,22 @@ def create_result(payload: TrainingResultCreate, db: Session = Depends(get_db)):
 @router.get("/{result_id}", response_model=TrainingResultRead)
 def get_result(result_id: int, db: Session = Depends(get_db)):
     result = crud.get_training_result(db, result_id=result_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Training result not found")
+    return result
+
+
+@router.post("/{result_id}/dashboard-latest", response_model=TrainingResultRead)
+def mark_result_dashboard_latest(result_id: int, db: Session = Depends(get_db)):
+    result = crud.mark_training_result_dashboard_latest(db, result_id=result_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Training result not found")
+    return result
+
+
+@router.delete("/{result_id}/dashboard-latest", response_model=TrainingResultRead)
+def clear_result_dashboard_latest(result_id: int, db: Session = Depends(get_db)):
+    result = crud.clear_training_result_dashboard_latest(db, result_id=result_id)
     if not result:
         raise HTTPException(status_code=404, detail="Training result not found")
     return result

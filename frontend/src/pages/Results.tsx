@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { apiDelete, apiGet } from "../api/client";
+import { Link, useSearchParams } from "react-router-dom";
+import { apiDelete, apiGet, apiPost } from "../api/client";
 
 interface Algorithm {
   id: number;
@@ -52,6 +52,7 @@ interface TrainingResult {
   data_from?: string | null;
   data_to?: string | null;
   summary_json: Record<string, unknown>;
+  is_dashboard_latest?: boolean;
   artifacts: TrainingArtifact[];
 }
 
@@ -115,13 +116,6 @@ function formatDate(value?: string | null) {
   return new Date(value).toLocaleDateString();
 }
 
-function formatBytes(value?: number | null) {
-  if (!value) return "-";
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 function statusClass(status: string) {
   if (status === "completed") return "bg-emerald-100 text-emerald-700";
   if (status === "failed") return "bg-rose-100 text-rose-700";
@@ -129,16 +123,24 @@ function statusClass(status: string) {
 }
 
 function Results() {
+  const [searchParams] = useSearchParams();
+  const requestedAlgorithmId = Number(searchParams.get("algo_id"));
+  const requestedVersionId = Number(searchParams.get("algo_version_id"));
   const [algorithms, setAlgorithms] = useState<Algorithm[]>([]);
   const [versionOptions, setVersionOptions] = useState<VersionOption[]>([]);
   const [results, setResults] = useState<TrainingResult[]>([]);
-  const [selectedAlgorithmId, setSelectedAlgorithmId] = useState<number | null>(null);
-  const [selectedVersionId, setSelectedVersionId] = useState<number | null>(null);
+  const [selectedAlgorithmId, setSelectedAlgorithmId] = useState<number | null>(
+    Number.isInteger(requestedAlgorithmId) && requestedAlgorithmId > 0 ? requestedAlgorithmId : null,
+  );
+  const [selectedVersionId, setSelectedVersionId] = useState<number | null>(
+    Number.isInteger(requestedVersionId) && requestedVersionId > 0 ? requestedVersionId : null,
+  );
   const [status, setStatus] = useState("");
   const [runSource, setRunSource] = useState("");
   const [search, setSearch] = useState("");
   const [currentOnly, setCurrentOnly] = useState(false);
   const [combinedOnly, setCombinedOnly] = useState(false);
+  const [dashboardOnly, setDashboardOnly] = useState(false);
   const [pageSize, setPageSize] = useState(100);
   const [page, setPage] = useState(0);
   const [isLoadingFilters, setIsLoadingFilters] = useState(true);
@@ -287,6 +289,7 @@ function Results() {
     if (selectedVersionId && !linkedVersions.some((version) => version.id === selectedVersionId)) return false;
     if (currentOnly && !linkedVersions.every(isCurrentActiveVersion)) return false;
     if (combinedOnly && linkedVersions.length <= 1) return false;
+    if (dashboardOnly && !result.is_dashboard_latest) return false;
     if (status && result.status !== status) return false;
     if (runSource.trim() && !result.run_source.toLowerCase().includes(runSource.trim().toLowerCase())) return false;
     return true;
@@ -302,6 +305,7 @@ function Results() {
       String(result.id),
       result.status,
       result.run_source,
+      result.is_dashboard_latest ? "dashboard latest" : "",
       versionText,
       artifactText,
     ].some((value) => value.toLowerCase().includes(query));
@@ -311,12 +315,6 @@ function Results() {
   const pagedResults = visibleResults.slice(page * pageSize, (page + 1) * pageSize);
   const firstVisibleRow = visibleResults.length ? page * pageSize + 1 : 0;
   const lastVisibleRow = page * pageSize + pagedResults.length;
-  const combinedCount = visibleResults.filter((result) => linkedVersionsFor(result).length > 1).length;
-  const currentLinkedCount = visibleResults.filter((result) => linkedVersionsFor(result).some((version) => {
-    const option = versionById[version.id];
-    return isCurrentActiveVersion(version);
-  })).length;
-  const artifactCount = visibleResults.reduce((total, result) => total + result.artifacts.length, 0);
 
   const clearFilters = () => {
     setSelectedAlgorithmId(null);
@@ -326,6 +324,7 @@ function Results() {
     setSearch("");
     setCurrentOnly(false);
     setCombinedOnly(false);
+    setDashboardOnly(false);
     setPage(0);
   };
 
@@ -356,42 +355,58 @@ function Results() {
     }
   };
 
+  const toggleDashboardResult = async (result: TrainingResult) => {
+    setMessage(null);
+    try {
+      const updated = result.is_dashboard_latest
+        ? await apiDelete<TrainingResult>(`/v1/training-results/${result.id}/dashboard-latest`)
+        : await apiPost<TrainingResult>(`/v1/training-results/${result.id}/dashboard-latest`, {});
+      setResults((current) => current.map((item) => {
+        if (item.id === updated.id) return updated;
+        return updated.is_dashboard_latest ? { ...item, is_dashboard_latest: false } : item;
+      }));
+      setPage(0);
+    } catch (error: any) {
+      setMessage(error?.message ?? "Unable to update dashboard result.");
+    }
+  };
+
   return (
-    <div className="mx-auto max-w-7xl space-y-5">
-      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+    <div className="mx-auto max-w-7xl space-y-4">
+      <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Results library</p>
-            <h1 className="mt-2 text-2xl font-semibold text-slate-900">Find uploaded runs</h1>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Results library</p>
+            <h1 className="mt-1 text-xl font-semibold text-slate-900">Find uploaded runs</h1>
           </div>
           <Link
             to="/upload-results"
-            className="inline-flex h-10 items-center justify-center rounded-lg bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-700"
+            className="inline-flex h-9 items-center justify-center rounded-md bg-slate-900 px-3 text-sm font-semibold text-white hover:bg-slate-700"
           >
             Upload result
           </Link>
         </div>
 
-        <div className="mt-5 grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(180px,0.7fr)_minmax(180px,0.7fr)_160px]">
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-[220px_minmax(180px,1fr)_minmax(190px,1fr)_130px_160px_auto] xl:items-end">
           <label className="block">
-            <span className="text-sm font-medium text-slate-700">Search</span>
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Search</span>
             <input
               value={search}
               onChange={(event) => {
                 setSearch(event.target.value);
                 setPage(0);
               }}
-              placeholder="Result ID, file, source, version"
-              className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:outline-none"
+              placeholder="ID, file, version"
+              className="mt-1 h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:outline-none"
             />
           </label>
 
           <label className="block">
-            <span className="text-sm font-medium text-slate-700">Algorithm</span>
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Algorithm</span>
             <select
               value={selectedAlgorithmId ?? ""}
               onChange={(event) => handleAlgorithmChange(event.target.value)}
-              className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:outline-none"
+              className="mt-1 h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:outline-none"
               disabled={isLoadingFilters}
             >
               <option value="">All algorithms</option>
@@ -404,14 +419,14 @@ function Results() {
           </label>
 
           <label className="block">
-            <span className="text-sm font-medium text-slate-700">Version</span>
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Version</span>
             <select
               value={selectedVersionId ?? ""}
               onChange={(event) => {
                 setSelectedVersionId(Number(event.target.value) || null);
                 setPage(0);
               }}
-              className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:outline-none"
+              className="mt-1 h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:outline-none"
               disabled={isLoadingFilters}
             >
               <option value="">All versions</option>
@@ -424,14 +439,14 @@ function Results() {
           </label>
 
           <label className="block">
-            <span className="text-sm font-medium text-slate-700">Status</span>
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Status</span>
             <select
               value={status}
               onChange={(event) => {
                 setStatus(event.target.value);
                 setPage(0);
               }}
-              className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:outline-none"
+              className="mt-1 h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:outline-none"
             >
               <option value="">Any status</option>
               <option value="completed">Completed</option>
@@ -439,33 +454,40 @@ function Results() {
               <option value="failed">Failed</option>
             </select>
           </label>
-        </div>
-
-        <div className="mt-3 grid gap-3 lg:grid-cols-[220px_1fr_auto] lg:items-end">
           <label className="block">
-            <span className="text-sm font-medium text-slate-700">Run source</span>
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Run source</span>
             <input
               value={runSource}
               onChange={(event) => {
                 setRunSource(event.target.value);
                 setPage(0);
               }}
-              placeholder="offline_upload"
-              className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:outline-none"
+              placeholder="Source"
+              className="mt-1 h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:outline-none"
             />
           </label>
 
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            Clear
+          </button>
+        </div>
+
+        <div className="mt-3 flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap gap-2">
-            <label className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700">
+            <label className="inline-flex h-8 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold text-slate-700">
               <input
                 type="checkbox"
                 checked={currentOnly}
                 onChange={(event) => handleCurrentOnlyChange(event.target.checked)}
                 className="h-4 w-4 rounded border-slate-300 text-slate-900"
               />
-              Current versions only
+              Current only
             </label>
-            <label className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700">
+            <label className="inline-flex h-8 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold text-slate-700">
               <input
                 type="checkbox"
                 checked={combinedOnly}
@@ -475,56 +497,45 @@ function Results() {
                 }}
                 className="h-4 w-4 rounded border-slate-300 text-slate-900"
               />
-              Combined runs only
+              Combined only
+            </label>
+            <label className="inline-flex h-8 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold text-slate-700">
+              <input
+                type="checkbox"
+                checked={dashboardOnly}
+                onChange={(event) => {
+                  setDashboardOnly(event.target.checked);
+                  setPage(0);
+                }}
+                className="h-4 w-4 rounded border-slate-300 text-slate-900"
+              />
+              Dashboard
             </label>
           </div>
 
-          <button
-            type="button"
-            onClick={clearFilters}
-            className="h-10 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-          >
-            Clear filters
-          </button>
-        </div>
-      </section>
-
-      <section className="grid gap-3 md:grid-cols-4">
-        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Shown</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">{visibleResults.length}</p>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Combined</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">{combinedCount}</p>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Current linked</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">{currentLinkedCount}</p>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Artifacts</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-900">{artifactCount}</p>
+          <p className="text-xs text-slate-500">
+            {isLoadingResults ? "Loading results..." : `${visibleResults.length} matching of ${results.length} loaded`}
+          </p>
         </div>
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-2 border-b border-slate-200 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Uploaded results</h2>
-            <p className="mt-1 text-sm text-slate-500">
+            <h2 className="text-base font-semibold text-slate-900">Uploaded results</h2>
+            <p className="mt-0.5 text-xs text-slate-500">
               Page {page + 1} / {isLoadingResults ? "loading" : `${visibleResults.length} matching of ${results.length} loaded`}
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-sm text-slate-500">Rows</span>
+            <span className="text-xs text-slate-500">Rows</span>
             <select
               value={pageSize}
               onChange={(event) => {
                 setPageSize(Number(event.target.value));
                 setPage(0);
               }}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-900 focus:outline-none"
+              className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-900 focus:border-slate-900 focus:outline-none"
             >
               <option value={50}>50</option>
               <option value={100}>100</option>
@@ -539,45 +550,45 @@ function Results() {
         ) : null}
 
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200">
+          <table className="min-w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50">
               <tr>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-slate-700">Result</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-slate-700">Linked versions</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-slate-700">Status</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-slate-700">Metrics</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-slate-700">Files</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-slate-700">Data window</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-slate-700">Action</th>
+                <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-semibold text-slate-700">Result</th>
+                <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-semibold text-slate-700">Linked versions</th>
+                <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-semibold text-slate-700">Status</th>
+                <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-semibold text-slate-700">Metrics</th>
+                <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-semibold text-slate-700">Data window</th>
+                <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-semibold text-slate-700">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
               {isLoadingResults ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-500">Loading results...</td>
+                  <td colSpan={6} className="px-3 py-6 text-center text-sm text-slate-500">Loading results...</td>
                 </tr>
               ) : pagedResults.length ? pagedResults.map((result) => {
                 const linkedVersions = linkedVersionsFor(result);
                 const previewMetrics = metricPreviewEntries(result.summary_json);
-                const firstArtifact = result.artifacts[0];
                 return (
                   <tr key={result.id} className="align-top hover:bg-slate-50">
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2">
                       <Link to={`/results/${result.id}`} className="text-sm font-semibold text-slate-900 hover:text-slate-600">
                         Result #{result.id}
                       </Link>
-                      <p className="mt-1 whitespace-nowrap text-xs text-slate-500">{formatDateTime(result.created_at)}</p>
-                      <p className="mt-1 text-xs text-slate-500">{result.run_source}</p>
+                      <p className="mt-0.5 whitespace-nowrap text-[11px] text-slate-500">{formatDateTime(result.created_at)}</p>
+                      <p className="mt-0.5 max-w-36 truncate text-[11px] text-slate-500" title={result.run_source}>{result.run_source}</p>
                     </td>
-                    <td className="min-w-64 px-4 py-3">
-                      <div className="flex flex-wrap gap-2">
-                        {linkedVersions.slice(0, 4).map((version) => {
+                    <td className="min-w-56 px-3 py-2">
+                      <div className="flex flex-wrap gap-1">
+                        {linkedVersions.slice(0, 3).map((version) => {
                           const isCurrent = isCurrentActiveVersion(version);
                           const isInactive = isInactiveVersion(version);
+                          const label = versionLabel(version);
                           return (
                             <span
                               key={`${result.id}-${version.id}`}
-                              className={`rounded-full border px-2 py-1 text-xs font-semibold ${
+                              title={`${label}${isInactive ? " / deleted" : ""}`}
+                              className={`inline-block max-w-52 truncate rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${
                                 isInactive
                                   ? "border-amber-200 bg-amber-50 text-amber-700"
                                   : isCurrent
@@ -585,61 +596,70 @@ function Results() {
                                   : "border-slate-200 bg-slate-50 text-slate-600"
                               }`}
                             >
-                              {versionLabel(version)}{isInactive ? " / deleted" : ""}
+                              {label}{isInactive ? " / deleted" : ""}
                             </span>
                           );
                         })}
-                        {linkedVersions.length > 4 ? (
-                          <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-600">
-                            +{linkedVersions.length - 4}
+                        {linkedVersions.length > 3 ? (
+                          <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] font-medium text-slate-600">
+                            +{linkedVersions.length - 3}
                           </span>
                         ) : null}
                       </div>
                     </td>
-                    <td className="px-4 py-3">
-                      <span className={`rounded-full px-2 py-1 text-xs font-semibold ${statusClass(result.status)}`}>
-                        {result.status}
-                      </span>
-                      {linkedVersions.length > 1 ? (
-                        <p className="mt-2 text-xs font-semibold text-indigo-700">Combined</p>
-                      ) : null}
+                    <td className="px-3 py-2">
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${statusClass(result.status)}`}>
+                          {result.status}
+                        </span>
+                        {linkedVersions.length > 1 ? (
+                          <span className="rounded-md bg-indigo-50 px-1.5 py-0.5 text-[11px] font-semibold text-indigo-700">Combined</span>
+                        ) : null}
+                        {result.is_dashboard_latest ? (
+                          <span className="rounded-md bg-slate-900 px-1.5 py-0.5 text-[11px] font-semibold text-white">Dashboard</span>
+                        ) : null}
+                      </div>
                     </td>
-                    <td className="min-w-56 px-4 py-3">
+                    <td className="min-w-48 px-3 py-2">
                       {previewMetrics.length ? (
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap gap-1">
                           {previewMetrics.map(([key, value]) => (
-                            <span key={key} className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">
+                            <span key={key} className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600">
                               {displayMetricKey(key)}: {formatMetricValue(value)}
                             </span>
                           ))}
                         </div>
                       ) : (
-                        <span className="text-sm text-slate-500">No metrics</span>
+                        <span className="text-xs text-slate-500">No metrics</span>
                       )}
                     </td>
-                    <td className="max-w-56 px-4 py-3">
-                      <p className="truncate text-sm font-medium text-slate-900">{firstArtifact?.file_name ?? "No files"}</p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {result.artifacts.length} file{result.artifacts.length === 1 ? "" : "s"}
-                        {firstArtifact ? ` / ${formatBytes(firstArtifact.byte_size)}` : ""}
-                      </p>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-600">
+                    <td className="px-3 py-2 text-xs text-slate-600">
                       <p>{formatDate(result.data_from)}</p>
-                      <p className="mt-1">{formatDate(result.data_to)}</p>
+                      <p className="mt-0.5">{formatDate(result.data_to)}</p>
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-2">
+                    <td className="min-w-[300px] whitespace-nowrap px-3 py-2">
+                      <div className="flex flex-nowrap items-center gap-1.5">
                         <Link
                           to={`/results/${result.id}`}
-                          className="inline-flex h-9 items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 hover:bg-slate-50"
+                          className="inline-flex h-8 items-center rounded-md border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-900 hover:bg-slate-50"
                         >
                           Open
                         </Link>
                         <button
                           type="button"
+                          onClick={() => toggleDashboardResult(result)}
+                          className={`inline-flex h-8 items-center rounded-md border px-2 text-xs font-semibold ${
+                            result.is_dashboard_latest
+                              ? "border-slate-300 bg-slate-900 text-white hover:bg-slate-700"
+                              : "border-slate-300 bg-white text-slate-900 hover:bg-slate-50"
+                          }`}
+                        >
+                          {result.is_dashboard_latest ? "On dashboard" : "Show on dashboard"}
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => deleteResult(result)}
-                          className="inline-flex h-9 items-center rounded-lg border border-rose-200 bg-rose-50 px-3 text-sm font-semibold text-rose-700 hover:bg-rose-100"
+                          className="inline-flex h-8 items-center rounded-md border border-rose-200 bg-rose-50 px-2 text-xs font-semibold text-rose-700 hover:bg-rose-100"
                         >
                           Delete
                         </button>
@@ -649,7 +669,7 @@ function Results() {
                 );
               }) : (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-500">
+                  <td colSpan={6} className="px-3 py-6 text-center text-sm text-slate-500">
                     No uploaded results match these filters.
                   </td>
                 </tr>
@@ -658,8 +678,8 @@ function Results() {
           </table>
         </div>
 
-        <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-slate-500">
+        <div className="flex flex-col gap-2 border-t border-slate-200 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-slate-500">
             Showing rows {firstVisibleRow}-{lastVisibleRow}
           </p>
           <div className="flex gap-2">
@@ -667,7 +687,7 @@ function Results() {
               type="button"
               onClick={() => setPage((value) => Math.max(0, value - 1))}
               disabled={page === 0 || isLoadingResults}
-              className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="h-8 rounded-md border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Newer
             </button>
@@ -675,7 +695,7 @@ function Results() {
               type="button"
               onClick={() => setPage((value) => value + 1)}
               disabled={(page + 1) * pageSize >= visibleResults.length || isLoadingResults}
-              className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="h-8 rounded-md border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Older
             </button>
