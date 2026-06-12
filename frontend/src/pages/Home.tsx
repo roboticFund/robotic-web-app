@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { API_BASE_URL, apiGet } from "../api/client";
 import {
@@ -6,7 +6,19 @@ import {
   roboticFundSizeDisplay,
   type VersionGitHubSource,
 } from "../lib/githubParameters";
-import { displayMetricKey, formatMetricValue, inferCsvSummary, metricEntries, type SummaryMetricContext } from "../lib/resultMetrics";
+import {
+  displayMetricKey,
+  formatMetricValue,
+  inferCsvDateRange,
+  inferCsvMonthlyMetricRows,
+  inferCsvSummary,
+  inferCsvYearlyMetricRows,
+  metricEntries,
+  type CsvDateRange,
+  type MonthlyMetricRow,
+  type PeriodMetricRow,
+  type SummaryMetricContext,
+} from "../lib/resultMetrics";
 
 interface Algorithm {
   id: number;
@@ -65,6 +77,32 @@ interface AlgorithmRow {
 }
 
 type DashboardTab = "chart" | "stats" | "algorithms";
+type PeriodTableMode = "monthly" | "yearly";
+
+const monthlyMetricColumns = [
+  "profit_dollars",
+  "number_of_trades",
+  "return_on_capital_pct",
+  "win_rate_pct",
+  "weekly_win_rate_pct",
+  "max_drawdown_pct",
+  "max_drawdown_dollars",
+  "maximum_positions_held",
+  "annualised_return_pct",
+];
+
+const yearlyMetricColumns = [
+  "profit_dollars",
+  "number_of_trades",
+  "return_on_capital_pct",
+  "win_rate_pct",
+  "monthly_win_rate_pct",
+  "weekly_win_rate_pct",
+  "max_drawdown_pct",
+  "max_drawdown_dollars",
+  "maximum_positions_held",
+  "annualised_return_pct",
+];
 
 function formatDateTime(value?: string | null) {
   if (!value) return "-";
@@ -122,6 +160,12 @@ function Home() {
   const [algorithms, setAlgorithms] = useState<AlgorithmRow[]>([]);
   const [dashboardResult, setDashboardResult] = useState<TrainingResult | null>(null);
   const [dashboardArtifactSummary, setDashboardArtifactSummary] = useState<Record<string, unknown>>({});
+  const [dashboardArtifactDateRange, setDashboardArtifactDateRange] = useState<CsvDateRange>({ dataFrom: null, dataTo: null });
+  const [dashboardStatsCsvText, setDashboardStatsCsvText] = useState<string | null>(null);
+  const [dashboardMonthlyRows, setDashboardMonthlyRows] = useState<MonthlyMetricRow[]>([]);
+  const [dashboardYearlyRows, setDashboardYearlyRows] = useState<PeriodMetricRow[]>([]);
+  const [periodTableMode, setPeriodTableMode] = useState<PeriodTableMode>("monthly");
+  const [monthlyAlgoFilter, setMonthlyAlgoFilter] = useState("combined");
   const [activeTab, setActiveTab] = useState<DashboardTab>("chart");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -197,11 +241,41 @@ function Home() {
   const dashboardMetrics = metricEntries({
     ...(dashboardResult?.summary_json ?? {}),
     ...dashboardArtifactSummary,
-  }, 9);
+  }, 10);
+  const dashboardDataFrom = dashboardArtifactDateRange.dataFrom ?? dashboardResult?.data_from ?? null;
+  const dashboardDataTo = dashboardArtifactDateRange.dataTo ?? dashboardResult?.data_to ?? null;
+  const monthlyFilterOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const algoOptions = dashboardVersions
+      .filter((version) => {
+        const code = version.algorithm_code?.trim();
+        if (!code || seen.has(code)) return false;
+        seen.add(code);
+        return true;
+      })
+      .map((version) => ({
+        key: version.algorithm_code?.trim() ?? "",
+        label: versionLabel(version),
+      }))
+      .filter((option) => option.key);
+
+    return [{ key: "combined", label: "Combined" }, ...algoOptions];
+  }, [dashboardVersions]);
+  const monthlyMetricContext: SummaryMetricContext = monthlyAlgoFilter === "combined"
+    ? { algoCode: "combined", isCombined: true }
+    : { algoCode: monthlyAlgoFilter, isCombined: false };
+
+  useEffect(() => {
+    setMonthlyAlgoFilter("combined");
+  }, [dashboardResult?.id]);
 
   useEffect(() => {
     let cancelled = false;
     setDashboardArtifactSummary({});
+    setDashboardArtifactDateRange({ dataFrom: null, dataTo: null });
+    setDashboardStatsCsvText(null);
+    setDashboardMonthlyRows([]);
+    setDashboardYearlyRows([]);
     if (!dashboardStatsCsv) return () => {
       cancelled = true;
     };
@@ -212,16 +286,40 @@ function Home() {
         return response.text();
       })
       .then((text) => {
-        if (!cancelled) setDashboardArtifactSummary(inferCsvSummary(text, dashboardMetricContext));
+        if (!cancelled) {
+          setDashboardStatsCsvText(text);
+          setDashboardArtifactSummary(inferCsvSummary(text, dashboardMetricContext));
+          setDashboardArtifactDateRange(inferCsvDateRange(text, dashboardMetricContext));
+        }
       })
       .catch(() => {
-        if (!cancelled) setDashboardArtifactSummary({});
+        if (!cancelled) {
+          setDashboardArtifactSummary({});
+          setDashboardArtifactDateRange({ dataFrom: null, dataTo: null });
+          setDashboardStatsCsvText(null);
+          setDashboardMonthlyRows([]);
+          setDashboardYearlyRows([]);
+        }
       });
 
     return () => {
       cancelled = true;
     };
   }, [dashboardStatsCsv?.s3_key, dashboardMetricContext.algoCode, dashboardMetricContext.isCombined]);
+
+  useEffect(() => {
+    if (!dashboardStatsCsvText) {
+      setDashboardMonthlyRows([]);
+      setDashboardYearlyRows([]);
+      return;
+    }
+    setDashboardMonthlyRows(inferCsvMonthlyMetricRows(dashboardStatsCsvText, monthlyMetricContext));
+    setDashboardYearlyRows(inferCsvYearlyMetricRows(dashboardStatsCsvText, monthlyMetricContext));
+  }, [dashboardStatsCsvText, monthlyMetricContext.algoCode, monthlyMetricContext.isCombined]);
+
+  const periodRows = periodTableMode === "monthly" ? dashboardMonthlyRows : dashboardYearlyRows;
+  const periodMetricColumns = periodTableMode === "monthly" ? monthlyMetricColumns : yearlyMetricColumns;
+  const periodLabel = periodTableMode === "monthly" ? "Monthly stats" : "Yearly stats";
 
   return (
     <main className="mx-auto w-full max-w-[1900px] space-y-3">
@@ -273,35 +371,15 @@ function Home() {
       ) : null}
 
       {activeTab === "stats" ? (
-        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Combined stats</p>
-              <h1 className="mt-1 text-2xl font-semibold text-slate-900">
-                {dashboardResult ? `Result #${dashboardResult.id}` : "No dashboard result tagged"}
-              </h1>
-            </div>
-            {dashboardResult ? (
-              <Link
-                to={`/results/${dashboardResult.id}`}
-                className="inline-flex h-9 items-center justify-center rounded-md bg-slate-900 px-3 text-sm font-semibold text-white hover:bg-slate-700"
-              >
-                Open result
-              </Link>
-            ) : (
-              <Link
-                to="/results"
-                className="inline-flex h-9 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 hover:bg-slate-50"
-              >
-                Results library
-              </Link>
-            )}
-          </div>
-
-          {dashboardResult ? (
-            <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
+        <section className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <h1 className="text-lg font-semibold text-slate-900">Combined stats</h1>
+              {dashboardResult ? (
+                <>
+                  <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">
+                    Result #{dashboardResult.id}
+                  </span>
                   <span className={`rounded-md px-2 py-1 text-xs font-semibold ${statusClass(dashboardResult.status)}`}>
                     {dashboardResult.status}
                   </span>
@@ -313,65 +391,165 @@ function Home() {
                   <span className="rounded-md bg-slate-900 px-2 py-1 text-xs font-semibold text-white">
                     Dashboard
                   </span>
-                </div>
-                <p className="mt-3 truncate text-sm text-slate-500" title={dashboardResult.run_source}>
-                  {dashboardResult.run_source}
-                </p>
+                </>
+              ) : (
+                <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-600">
+                  No dashboard result tagged
+                </span>
+              )}
+            </div>
+            {dashboardResult ? (
+              <Link
+                to={`/results/${dashboardResult.id}`}
+                className="inline-flex h-8 items-center justify-center rounded-md bg-slate-900 px-3 text-xs font-semibold text-white hover:bg-slate-700"
+              >
+                Open result
+              </Link>
+            ) : (
+              <Link
+                to="/results"
+                className="inline-flex h-8 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-900 hover:bg-slate-50"
+              >
+                Results library
+              </Link>
+            )}
+          </div>
 
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {dashboardVersions.length ? dashboardVersions.slice(0, 8).map((version) => (
-                    <span key={version.id} className="max-w-56 truncate rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700">
-                      {versionLabel(version)}
-                    </span>
-                  )) : (
-                    <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700">
-                      Linked version data unavailable
-                    </span>
-                  )}
-                  {dashboardVersions.length > 8 ? (
-                    <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700">
-                      +{dashboardVersions.length - 8}
-                    </span>
-                  ) : null}
+          {dashboardResult ? (
+            <div className="mt-3 space-y-3">
+              <div className="grid gap-1.5 text-xs sm:grid-cols-2 lg:grid-cols-5">
+                <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
+                  <span className="text-slate-500">Run</span>
+                  <span className="ml-2 font-semibold text-slate-900">{formatDate(dashboardRunDate)}</span>
                 </div>
-
-                <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                  {dashboardMetrics.length ? dashboardMetrics.map(([key, value]) => (
-                    <div key={key} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{displayMetricKey(key)}</p>
-                      <p className="mt-1 break-words text-sm font-semibold text-slate-900">{formatMetricValue(key, value)}</p>
-                    </div>
-                  )) : (
-                    <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-500 sm:col-span-2 xl:col-span-4">
-                      No summary metrics saved for this result.
-                    </p>
-                  )}
+                <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
+                  <span className="text-slate-500">From</span>
+                  <span className="ml-2 font-semibold text-slate-900">{formatDate(dashboardDataFrom)}</span>
+                </div>
+                <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
+                  <span className="text-slate-500">To</span>
+                  <span className="ml-2 font-semibold text-slate-900">{formatDate(dashboardDataTo)}</span>
+                </div>
+                <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
+                  <span className="text-slate-500">Files</span>
+                  <span className="ml-2 font-semibold text-slate-900">{dashboardResult.artifacts.length}</span>
+                </div>
+                <div className="truncate rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5" title={dashboardResult.run_source}>
+                  <span className="text-slate-500">Source</span>
+                  <span className="ml-2 font-semibold text-slate-900">{dashboardResult.run_source}</span>
                 </div>
               </div>
 
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
-                <div className="flex justify-between gap-4">
-                  <span className="text-slate-500">Run date</span>
-                  <span className="text-right font-medium text-slate-900">{formatDate(dashboardRunDate)}</span>
-                </div>
-                <div className="mt-3 flex justify-between gap-4">
-                  <span className="text-slate-500">Data from</span>
-                  <span className="text-right font-medium text-slate-900">{formatDate(dashboardResult.data_from)}</span>
-                </div>
-                <div className="mt-3 flex justify-between gap-4">
-                  <span className="text-slate-500">Data to</span>
-                  <span className="text-right font-medium text-slate-900">{formatDate(dashboardResult.data_to)}</span>
-                </div>
-                <div className="mt-3 flex justify-between gap-4">
-                  <span className="text-slate-500">Files</span>
-                  <span className="text-right font-medium text-slate-900">{dashboardResult.artifacts.length}</span>
-                </div>
-                {dashboardResult.artifacts[0] ? (
-                  <p className="mt-3 truncate text-xs text-slate-500" title={dashboardResult.artifacts[0].file_name}>
-                    {dashboardResult.artifacts[0].file_name}
-                  </p>
+              <div className="flex flex-wrap gap-1">
+                {dashboardVersions.length ? dashboardVersions.slice(0, 10).map((version) => (
+                  <span key={version.id} className="max-w-52 truncate rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700">
+                    {versionLabel(version)}
+                  </span>
+                )) : (
+                  <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700">
+                    Linked version data unavailable
+                  </span>
+                )}
+                {dashboardVersions.length > 10 ? (
+                  <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700">
+                    +{dashboardVersions.length - 10}
+                  </span>
                 ) : null}
               </div>
+
+              <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-5">
+                {dashboardMetrics.length ? dashboardMetrics.map(([key, value]) => (
+                  <div key={key} className="min-h-14 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
+                    <p className="truncate text-[11px] font-semibold uppercase text-slate-500" title={displayMetricKey(key)}>{displayMetricKey(key)}</p>
+                    <p className="mt-0.5 truncate text-sm font-semibold text-slate-900" title={formatMetricValue(key, value)}>{formatMetricValue(key, value)}</p>
+                  </div>
+                )) : (
+                  <p className="rounded-md border border-slate-200 bg-slate-50 p-2 text-sm text-slate-500 sm:col-span-2 lg:col-span-5">
+                    No summary metrics saved for this result.
+                  </p>
+                )}
+              </div>
+
+              {dashboardStatsCsvText ? (
+                <div>
+                  <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="text-sm font-semibold text-slate-900">{periodLabel}</h2>
+                      <span className="text-xs text-slate-500">{periodRows.length} rows</span>
+                      <div className="flex rounded-md border border-slate-200 bg-slate-50 p-0.5">
+                        {([
+                          ["monthly", "Monthly"],
+                          ["yearly", "Yearly"],
+                        ] as [PeriodTableMode, string][]).map(([mode, label]) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() => setPeriodTableMode(mode)}
+                            className={`h-6 rounded px-2 text-xs font-semibold transition ${
+                              periodTableMode === mode
+                                ? "bg-slate-900 text-white"
+                                : "text-slate-700 hover:bg-white"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {monthlyFilterOptions.map((option) => (
+                        <button
+                          key={option.key}
+                          type="button"
+                          onClick={() => setMonthlyAlgoFilter(option.key)}
+                          title={option.label}
+                          className={`h-7 max-w-48 truncate rounded-md border px-2 text-xs font-semibold transition ${
+                            monthlyAlgoFilter === option.key
+                              ? "border-slate-900 bg-slate-900 text-white"
+                              : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="mt-1.5 max-h-[360px] overflow-auto rounded-md border border-slate-200">
+                    <table className="min-w-full divide-y divide-slate-200 text-xs">
+                      <thead className="sticky top-0 bg-slate-100">
+                        <tr>
+                          <th className="whitespace-nowrap px-2 py-1.5 text-left font-semibold text-slate-700">
+                            {periodTableMode === "monthly" ? "Month" : "Year"}
+                          </th>
+                          {periodMetricColumns.map((key) => (
+                            <th key={key} className="whitespace-nowrap px-2 py-1.5 text-right font-semibold text-slate-700">
+                              {displayMetricKey(key)}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {periodRows.length ? periodRows.map((row) => (
+                          <tr key={row.period} className="hover:bg-slate-50">
+                            <td className="whitespace-nowrap px-2 py-1 font-medium text-slate-900">{row.period}</td>
+                            {periodMetricColumns.map((key) => (
+                              <td key={key} className="whitespace-nowrap px-2 py-1 text-right text-slate-700">
+                                {formatMetricValue(key, row.metrics[key])}
+                              </td>
+                            ))}
+                          </tr>
+                        )) : (
+                          <tr>
+                            <td colSpan={periodMetricColumns.length + 1} className="px-2 py-4 text-center text-xs text-slate-500">
+                              No {periodTableMode} rows found.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">

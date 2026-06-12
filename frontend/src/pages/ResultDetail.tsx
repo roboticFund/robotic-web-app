@@ -4,10 +4,12 @@ import { API_BASE_URL, apiDelete, apiGet, apiPatch, apiPost } from "../api/clien
 import {
   displayMetricKey,
   formatMetricValue,
+  inferCsvDateRange,
   inferArtifactSummary,
   inferCsvSummary,
   metricEntries as resultMetricEntries,
   metricPreviewEntries,
+  type CsvDateRange,
   type SummaryMetricContext,
 } from "../lib/resultMetrics";
 
@@ -209,6 +211,7 @@ function ResultDetail() {
   const [draggingSlot, setDraggingSlot] = useState<string | null>(null);
   const [uploadingSlot, setUploadingSlot] = useState<string | null>(null);
   const [artifactSummary, setArtifactSummary] = useState<Record<string, unknown>>({});
+  const [artifactDateRange, setArtifactDateRange] = useState<CsvDateRange>({ dataFrom: null, dataTo: null });
 
   const loadResult = useCallback(() => {
     if (!resultId) return;
@@ -318,6 +321,7 @@ function ResultDetail() {
   useEffect(() => {
     let cancelled = false;
     setArtifactSummary({});
+    setArtifactDateRange({ dataFrom: null, dataTo: null });
     if (!statsCsvArtifact) return () => {
       cancelled = true;
     };
@@ -328,10 +332,16 @@ function ResultDetail() {
         return response.text();
       })
       .then((text) => {
-        if (!cancelled) setArtifactSummary(inferCsvSummary(text, metricContext));
+        if (!cancelled) {
+          setArtifactSummary(inferCsvSummary(text, metricContext));
+          setArtifactDateRange(inferCsvDateRange(text, metricContext));
+        }
       })
       .catch(() => {
-        if (!cancelled) setArtifactSummary({});
+        if (!cancelled) {
+          setArtifactSummary({});
+          setArtifactDateRange({ dataFrom: null, dataTo: null });
+        }
       });
 
     return () => {
@@ -389,14 +399,25 @@ function ResultDetail() {
           byte_size: file.size,
           checksum_sha256: checksumSha256,
           summary: await inferArtifactSummary(file, artifactType, metricContext).catch(() => ({})),
+          dateRange: artifactType === "stats_csv" ? await file.text().then((text) => inferCsvDateRange(text, metricContext)).catch(() => ({ dataFrom: null, dataTo: null })) : { dataFrom: null, dataTo: null },
         };
       }));
 
+      const appendedDateRange = artifacts.reduce<CsvDateRange>((acc, artifact) => ({
+        dataFrom: [acc.dataFrom, artifact.dateRange.dataFrom]
+          .filter((value): value is string => Boolean(value))
+          .sort((left, right) => Date.parse(left) - Date.parse(right))[0] ?? null,
+        dataTo: [acc.dataTo, artifact.dateRange.dataTo]
+          .filter((value): value is string => Boolean(value))
+          .sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? null,
+      }), { dataFrom: null, dataTo: null });
       const summaryJson = artifacts.reduce((acc, artifact) => ({ ...acc, ...artifact.summary }), {});
       const updated = await apiPost<TrainingResult>(`/v1/training-results/${result.id}/artifacts`, {
+        data_from: appendedDateRange.dataFrom,
+        data_to: appendedDateRange.dataTo,
         summary_json: summaryJson,
         chart_series_json: {},
-        artifacts: artifacts.map(({ summary, ...artifact }) => artifact),
+        artifacts: artifacts.map(({ summary, dateRange, ...artifact }) => artifact),
       });
       setResult(updated);
       setActionMessage(`${files.length} file${files.length === 1 ? "" : "s"} added to Result #${updated.id}.`);
@@ -767,8 +788,8 @@ function ResultDetail() {
                   <div className="flex justify-between gap-4"><span className="text-slate-500">Source</span><span className="font-medium text-slate-900">{result.run_source}</span></div>
                   <div className="flex justify-between gap-4"><span className="text-slate-500">Dashboard</span><span className="font-medium text-slate-900">{result.is_dashboard_latest ? "Yes" : "No"}</span></div>
                   <div className="flex justify-between gap-4"><span className="text-slate-500">Run date</span><span className="font-medium text-slate-900">{runDate ? new Date(runDate).toLocaleDateString() : "-"}</span></div>
-                  <div className="flex justify-between gap-4"><span className="text-slate-500">Data from</span><span className="font-medium text-slate-900">{result.data_from ? new Date(result.data_from).toLocaleDateString() : "-"}</span></div>
-                  <div className="flex justify-between gap-4"><span className="text-slate-500">Data to</span><span className="font-medium text-slate-900">{result.data_to ? new Date(result.data_to).toLocaleDateString() : "-"}</span></div>
+                  <div className="flex justify-between gap-4"><span className="text-slate-500">Data from</span><span className="font-medium text-slate-900">{artifactDateRange.dataFrom || result.data_from ? new Date(artifactDateRange.dataFrom ?? result.data_from ?? "").toLocaleDateString() : "-"}</span></div>
+                  <div className="flex justify-between gap-4"><span className="text-slate-500">Data to</span><span className="font-medium text-slate-900">{artifactDateRange.dataTo || result.data_to ? new Date(artifactDateRange.dataTo ?? result.data_to ?? "").toLocaleDateString() : "-"}</span></div>
                 </div>
               )}
             </section>

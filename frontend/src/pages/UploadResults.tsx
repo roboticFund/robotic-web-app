@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { API_BASE_URL, apiGet, apiPost } from "../api/client";
-import { displayMetricKey, formatMetricValue, inferArtifactSummary, metricEntries, type SummaryMetricContext } from "../lib/resultMetrics";
+import {
+  displayMetricKey,
+  formatMetricValue,
+  inferArtifactDateRange,
+  inferArtifactSummary,
+  metricEntries,
+  type CsvDateRange,
+  type SummaryMetricContext,
+} from "../lib/resultMetrics";
 
 interface Algorithm {
   id: number;
@@ -74,6 +82,7 @@ interface PreparedFile {
   file: File;
   artifactType: string;
   summary: Record<string, unknown>;
+  dateRange: CsvDateRange;
 }
 
 type RunTargetMode = "auto" | "new" | "existing";
@@ -260,13 +269,30 @@ function UploadResults() {
   const summaryPreview = useMemo(() => {
     try {
       const parsed = JSON.parse(summaryJson || "{}") as Record<string, unknown>;
-      return metricEntries(parsed, 9);
+      return metricEntries(parsed, 10);
     } catch {
       return [];
     }
   }, [summaryJson]);
 
   const queuedBytes = preparedFiles.reduce((total, prepared) => total + prepared.file.size, 0);
+  const preparedDateRange = useMemo<CsvDateRange>(() => {
+    const ranges = preparedFiles
+      .map((prepared) => prepared.dateRange)
+      .filter((range) => range.dataFrom || range.dataTo);
+    if (!ranges.length) return { dataFrom: null, dataTo: null };
+
+    return {
+      dataFrom: ranges
+        .map((range) => range.dataFrom)
+        .filter((value): value is string => Boolean(value))
+        .sort((left, right) => Date.parse(left) - Date.parse(right))[0] ?? null,
+      dataTo: ranges
+        .map((range) => range.dataTo)
+        .filter((value): value is string => Boolean(value))
+        .sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? null,
+    };
+  }, [preparedFiles]);
 
   const resultVersionLabel = (result: TrainingResult) => {
     const linkedIds = result.algo_version_ids?.length ? result.algo_version_ids : [result.algo_version_id];
@@ -302,16 +328,23 @@ function UploadResults() {
     const nextPrepared = await Promise.all(files.map(async (file, index) => {
       const artifactType = inferArtifactType(file);
       let summary: Record<string, unknown> = {};
+      let dateRange: CsvDateRange = { dataFrom: null, dataTo: null };
       try {
         summary = await inferArtifactSummary(file, artifactType, metricContext);
       } catch {
         summary = {};
+      }
+      try {
+        dateRange = await inferArtifactDateRange(file, artifactType, metricContext);
+      } catch {
+        dateRange = { dataFrom: null, dataTo: null };
       }
       return {
         id: `${file.name}-${file.size}-${file.lastModified}-${Date.now()}-${index}`,
         file,
         artifactType,
         summary,
+        dateRange,
       };
     }));
     setPreparedFiles((current) => [...current, ...nextPrepared]);
@@ -418,6 +451,8 @@ function UploadResults() {
         ? await apiPost<TrainingResult>(`/v1/training-results/${targetResult.id}/artifacts`, {
           summary_json: summary,
           chart_series_json: {},
+          data_from: preparedDateRange.dataFrom,
+          data_to: preparedDateRange.dataTo,
           artifacts,
         })
         : await apiPost<TrainingResult>("/v1/training-results/", {
@@ -426,6 +461,8 @@ function UploadResults() {
           model_id: selectedModelId,
           run_source: runSource,
           status,
+          data_from: preparedDateRange.dataFrom,
+          data_to: preparedDateRange.dataTo,
           summary_json: summary,
           chart_series_json: {},
           artifacts,

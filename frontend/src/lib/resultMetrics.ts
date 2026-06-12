@@ -3,6 +3,20 @@ export interface SummaryMetricContext {
   isCombined?: boolean;
 }
 
+export interface CsvDateRange {
+  dataFrom: string | null;
+  dataTo: string | null;
+}
+
+export interface MonthlyMetricRow {
+  period: string;
+  dataFrom: string | null;
+  dataTo: string | null;
+  metrics: Record<string, unknown>;
+}
+
+export type PeriodMetricRow = MonthlyMetricRow;
+
 type MetricKind = "currency" | "percent" | "integer" | "number";
 
 interface MetricDefinition {
@@ -18,6 +32,7 @@ const requestedMetrics: MetricDefinition[] = [
   { key: "max_drawdown_dollars", label: "Max Drawdown $", kind: "currency", sourceHeaders: ["Max Drawdown ($)"] },
   { key: "return_on_capital_pct", label: "Return on Capital %", kind: "percent", sourceHeaders: ["Return on Capital (%)"] },
   { key: "profit_dollars", label: "Profit $", kind: "currency", sourceHeaders: ["Final P&L"] },
+  { key: "number_of_trades", label: "Trades", kind: "integer", sourceHeaders: ["Number of Trades", "Total Trades"] },
   { key: "maximum_positions_held", label: "Max Positions Held", kind: "integer", sourceHeaders: ["Maximum Positions Held"] },
   { key: "monthly_win_rate_pct", label: "Monthly Win Rate %", kind: "percent", sourceHeaders: ["Monthly Win Rate (%)"] },
   { key: "weekly_win_rate_pct", label: "Weekly Win Rate %", kind: "percent", sourceHeaders: ["Weekly Win Rate (%)"] },
@@ -64,8 +79,12 @@ function normalizeText(value?: string | null) {
   return value?.trim().toLowerCase() ?? "";
 }
 
+function normalizeAlgoCode(value?: string | null) {
+  return normalizeText(value).replace(/[^a-z0-9]+/g, "");
+}
+
 function normalizeHeader(value: string) {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return value.trim().toLowerCase().replace(/[^a-z0-9$%]+/g, "");
 }
 
 function coerceValue(value: string) {
@@ -82,8 +101,20 @@ function nullDimension(value?: string) {
 }
 
 function rowValue(headers: string[], row: string[], header: string) {
-  const index = headers.findIndex((candidate) => normalizeHeader(candidate) === normalizeHeader(header));
+  const exactIndex = headers.findIndex((candidate) => candidate.trim().toLowerCase() === header.trim().toLowerCase());
+  const index = exactIndex >= 0
+    ? exactIndex
+    : headers.findIndex((candidate) => normalizeHeader(candidate) === normalizeHeader(header));
   return index >= 0 ? row[index] : undefined;
+}
+
+function csvRows(text: string) {
+  const lines = text.split(/\r?\n/).filter((line) => line.trim());
+  if (lines.length < 2) return null;
+  return {
+    headers: splitCsvLine(lines[0]).map((header) => header.trim()),
+    rows: lines.slice(1).map((line) => splitCsvLine(line)),
+  };
 }
 
 function hasAdvancedMetricColumns(headers: string[]) {
@@ -104,35 +135,82 @@ function extractRequestedMetrics(headers: string[], row: string[]) {
   );
 }
 
+function targetAlgo(context?: SummaryMetricContext) {
+  return normalizeAlgoCode(context?.isCombined ? "combined" : context?.algoCode);
+}
+
+function matchesContext(headers: string[], row: string[], context?: SummaryMetricContext) {
+  const target = targetAlgo(context);
+  if (target && normalizeAlgoCode(rowValue(headers, row, "Algo")) !== target) return false;
+  if (context?.isCombined && normalizeText(rowValue(headers, row, "Instrument")) !== "multi") return false;
+  return true;
+}
+
 function advancedMetricsRow(headers: string[], rows: string[][], context?: SummaryMetricContext) {
   if (!hasAdvancedMetricColumns(headers)) return null;
 
   const totalRows = rows.filter((row) => nullDimension(rowValue(headers, row, "Year")) && nullDimension(rowValue(headers, row, "Month")));
-  const targetAlgo = normalizeText(context?.isCombined ? "combined" : context?.algoCode);
+  const target = targetAlgo(context);
 
-  if (targetAlgo === "combined") {
-    const combinedRows = totalRows.filter((row) => normalizeText(rowValue(headers, row, "Algo")) === "combined");
+  if (target === "combined") {
+    const combinedRows = totalRows.filter((row) => normalizeAlgoCode(rowValue(headers, row, "Algo")) === "combined");
     const multiRow = combinedRows.find((row) => normalizeText(rowValue(headers, row, "Instrument")) === "multi");
     return multiRow ?? combinedRows[0] ?? null;
   }
 
-  if (targetAlgo) {
-    const algoRow = totalRows.find((row) => normalizeText(rowValue(headers, row, "Algo")) === targetAlgo);
+  if (target) {
+    const algoRow = totalRows.find((row) => normalizeAlgoCode(rowValue(headers, row, "Algo")) === target);
     if (algoRow) return algoRow;
   }
 
   return totalRows.find((row) => (
-    normalizeText(rowValue(headers, row, "Algo")) === "combined"
+    normalizeAlgoCode(rowValue(headers, row, "Algo")) === "combined"
     && normalizeText(rowValue(headers, row, "Instrument")) === "multi"
   )) ?? totalRows[0] ?? null;
 }
 
-export function inferCsvSummary(text: string, context?: SummaryMetricContext) {
-  const lines = text.split(/\r?\n/).filter((line) => line.trim());
-  if (lines.length < 2) return {};
+function parseYearMonth(headers: string[], row: string[]) {
+  const year = Number(rowValue(headers, row, "Year"));
+  const month = Number(rowValue(headers, row, "Month"));
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return null;
+  return { year, month };
+}
 
-  const headers = splitCsvLine(lines[0]).map((header) => header.trim());
-  const rows = lines.slice(1).map((line) => splitCsvLine(line));
+function parseDateValue(value?: string) {
+  if (!value?.trim()) return null;
+  const date = new Date(value.trim());
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function monthStartIso(year: number, month: number) {
+  return new Date(Date.UTC(year, month - 1, 1)).toISOString();
+}
+
+function monthEndIso(year: number, month: number) {
+  return new Date(Date.UTC(year, month, 0)).toISOString();
+}
+
+function monthPeriodLabel(year: number, month: number) {
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+function advancedPeriodRows(headers: string[], rows: string[][], periodType: "month" | "year", context?: SummaryMetricContext) {
+  if (!hasAdvancedMetricColumns(headers)) return [];
+  return rows
+    .filter((row) => normalizeText(rowValue(headers, row, "Period Type")) === periodType)
+    .filter((row) => periodType === "year" || parseYearMonth(headers, row))
+    .filter((row) => matchesContext(headers, row, context));
+}
+
+function advancedMonthlyRows(headers: string[], rows: string[][], context?: SummaryMetricContext) {
+  return advancedPeriodRows(headers, rows, "month", context);
+}
+
+export function inferCsvSummary(text: string, context?: SummaryMetricContext) {
+  const parsed = csvRows(text);
+  if (!parsed) return {};
+
+  const { headers, rows } = parsed;
   const advancedRow = advancedMetricsRow(headers, rows, context);
   if (advancedRow) return extractRequestedMetrics(headers, advancedRow);
 
@@ -157,6 +235,70 @@ export function inferCsvSummary(text: string, context?: SummaryMetricContext) {
   );
 }
 
+export function inferCsvDateRange(text: string, context?: SummaryMetricContext): CsvDateRange {
+  const parsed = csvRows(text);
+  if (!parsed) return { dataFrom: null, dataTo: null };
+
+  const { headers, rows } = parsed;
+  const monthlyRows = advancedMonthlyRows(headers, rows, context)
+    .map((row) => {
+      const period = parseYearMonth(headers, row);
+      if (!period) return null;
+      return {
+        ...period,
+        dataFrom: parseDateValue(rowValue(headers, row, "Run Start Date")) ?? monthStartIso(period.year, period.month),
+        dataTo: parseDateValue(rowValue(headers, row, "Run End Date")) ?? monthEndIso(period.year, period.month),
+      };
+    })
+    .filter((row): row is { year: number; month: number; dataFrom: string; dataTo: string } => Boolean(row))
+    .sort((left, right) => left.year - right.year || left.month - right.month);
+
+  return {
+    dataFrom: monthlyRows[0]?.dataFrom ?? null,
+    dataTo: monthlyRows[monthlyRows.length - 1]?.dataTo ?? null,
+  };
+}
+
+export function inferCsvMonthlyMetricRows(text: string, context?: SummaryMetricContext): MonthlyMetricRow[] {
+  const parsed = csvRows(text);
+  if (!parsed) return [];
+
+  const { headers, rows } = parsed;
+  return advancedMonthlyRows(headers, rows, context)
+    .map((row): MonthlyMetricRow | null => {
+      const period = parseYearMonth(headers, row);
+      if (!period) return null;
+      return {
+        period: monthPeriodLabel(period.year, period.month),
+        dataFrom: parseDateValue(rowValue(headers, row, "Run Start Date")) ?? monthStartIso(period.year, period.month),
+        dataTo: parseDateValue(rowValue(headers, row, "Run End Date")) ?? monthEndIso(period.year, period.month),
+        metrics: extractRequestedMetrics(headers, row),
+      };
+    })
+    .filter((row): row is MonthlyMetricRow => Boolean(row))
+    .sort((left, right) => right.period.localeCompare(left.period));
+}
+
+export function inferCsvYearlyMetricRows(text: string, context?: SummaryMetricContext): PeriodMetricRow[] {
+  const parsed = csvRows(text);
+  if (!parsed) return [];
+
+  const { headers, rows } = parsed;
+  return advancedPeriodRows(headers, rows, "year", context)
+    .map((row): PeriodMetricRow | null => {
+      const year = Number(rowValue(headers, row, "Year"));
+      if (!Number.isInteger(year)) return null;
+      return {
+        period: String(year),
+        dataFrom: parseDateValue(rowValue(headers, row, "Run Start Date")) ?? new Date(Date.UTC(year, 0, 1)).toISOString(),
+        dataTo: parseDateValue(rowValue(headers, row, "Run End Date")) ?? new Date(Date.UTC(year, 11, 31)).toISOString(),
+        metrics: extractRequestedMetrics(headers, row),
+      };
+    })
+    .filter((row): row is PeriodMetricRow => Boolean(row))
+    .sort((left, right) => right.period.localeCompare(left.period));
+}
+
 export async function inferArtifactSummary(file: File, artifactType: string, context?: SummaryMetricContext): Promise<Record<string, unknown>> {
   if (artifactType === "stats_csv") return inferCsvSummary(await file.text(), context);
   if (artifactType === "best_params_json") {
@@ -172,6 +314,11 @@ export async function inferArtifactSummary(file: File, artifactType: string, con
   return {};
 }
 
+export async function inferArtifactDateRange(file: File, artifactType: string, context?: SummaryMetricContext): Promise<CsvDateRange> {
+  if (artifactType === "stats_csv") return inferCsvDateRange(await file.text(), context);
+  return { dataFrom: null, dataTo: null };
+}
+
 export function displayMetricKey(key: string) {
   return metricByKey[key]?.label ?? key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
@@ -179,7 +326,7 @@ export function displayMetricKey(key: string) {
 function formatCurrency(value: number) {
   return new Intl.NumberFormat(undefined, {
     style: "currency",
-    currency: "USD",
+    currency: "AUD",
     maximumFractionDigits: 2,
   }).format(value);
 }

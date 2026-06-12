@@ -472,6 +472,10 @@ def append_training_result_artifacts(db: Session, result_id: int, payload: Train
             **(result.summary_json or {}),
             **payload.summary_json,
         }
+    if payload.data_from is not None:
+        result.data_from = payload.data_from
+    if payload.data_to is not None:
+        result.data_to = payload.data_to
     if payload.chart_series_json:
         result.chart_series_json = {
             **(result.chart_series_json or {}),

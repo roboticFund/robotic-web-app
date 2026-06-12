@@ -470,6 +470,8 @@ algo_params = {
                 db,
                 result.id,
                 TrainingArtifactsAppend(
+                    data_from=datetime(2020, 1, 1, tzinfo=UTC),
+                    data_to=datetime(2026, 6, 5, tzinfo=UTC),
                     summary_json={"sharpe_ratio": 1.2},
                     artifacts=[
                         TrainingArtifactBase(
@@ -485,6 +487,8 @@ algo_params = {
             self.assertEqual(updated.id, result.id)
             self.assertEqual(len(updated.artifacts), 2)
             self.assertEqual(updated.summary_json, {"total_profit": 10, "sharpe_ratio": 1.2})
+            self.assertEqual(updated.data_from, datetime(2020, 1, 1))
+            self.assertEqual(updated.data_to, datetime(2026, 6, 5))
 
             edited = crud.update_training_result(
                 db,

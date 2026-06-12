@@ -340,6 +340,8 @@ class TrainingResultUpdate(BaseModel):
 
 class TrainingArtifactsAppend(BaseModel):
     artifacts: List[TrainingArtifactBase] = Field(min_length=1)
+    data_from: Optional[datetime] = None
+    data_to: Optional[datetime] = None
     summary_json: Optional[Dict[str, Any]] = None
     chart_series_json: Optional[Dict[str, Any]] = None
 
