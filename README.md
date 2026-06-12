@@ -97,3 +97,9 @@ The production database name, secret ARN, and VPC ID are configured in `infra/cd
 If you later add a custom frontend domain, pass it as an allowed origin for S3 artifact upload CORS, for example `-c allowedOrigins=<FRONTEND_URL>`.
 
 `apiAuthEnabled` defaults to `false` in `infra/cdk.json` because the frontend does not yet include a Cognito login/token flow. After login is implemented, deploy with `-c apiAuthEnabled=true` to require Cognito JWTs on API routes.
+
+## Automatic Deployment
+
+AWS CodePipeline configuration is defined in `infra/pipeline_stack.py`. Once its GitHub CodeConnections authorization and initial pipeline deployment are complete, every push to `main` runs tests, builds the application, deploys the existing production stack, and performs production smoke checks.
+
+Follow [docs/codepipeline-deployment.md](docs/codepipeline-deployment.md) for the one-time setup and normal deployment workflow.

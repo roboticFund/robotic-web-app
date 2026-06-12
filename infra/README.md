@@ -107,3 +107,15 @@ npm run build
 cd ..\infra
 cdk deploy --profile <AWS_PROFILE>
 ```
+
+## CodePipeline
+
+`pipeline_app.py` and `pipeline_stack.py` define the self-updating production CodePipeline. Deploy that stack separately with:
+
+```powershell
+cdk deploy RoboticWebAppPipelineStack `
+  --app "python pipeline_app.py" `
+  --profile <AWS_PROFILE>
+```
+
+See `docs/codepipeline-deployment.md` for GitHub authorization and the full setup sequence.

@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from aws_cdk import (
@@ -24,7 +25,9 @@ from constructs import Construct
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 BACKEND_DIR = ROOT_DIR / "backend"
-FRONTEND_DIST_DIR = ROOT_DIR / "frontend" / "dist"
+FRONTEND_DIST_DIR = Path(
+    os.getenv("ROBOTIC_FRONTEND_DIST_DIR", ROOT_DIR / "frontend" / "dist")
+)
 
 
 def _context_string(scope: Construct, key: str, default: str = "") -> str:
@@ -364,11 +367,19 @@ function handler(event) {
             )
 
         CfnOutput(self, "ApiAuthEnabled", value=str(api_auth_enabled).lower())
-        CfnOutput(self, "ApiUrl", value=http_api.api_endpoint)
+        self.api_url_output = CfnOutput(
+            self,
+            "ApiUrl",
+            value=http_api.api_endpoint,
+        )
         CfnOutput(self, "ArtifactBucketName", value=artifact_bucket.bucket_name)
         CfnOutput(self, "CloudFrontDistributionId", value=distribution.distribution_id)
         CfnOutput(self, "FrontendBucketName", value=frontend_bucket.bucket_name)
-        CfnOutput(self, "FrontendUrl", value=frontend_origin)
+        self.frontend_url_output = CfnOutput(
+            self,
+            "FrontendUrl",
+            value=frontend_origin,
+        )
         CfnOutput(self, "UserPoolClientId", value=user_pool_client.user_pool_client_id)
         CfnOutput(self, "UserPoolId", value=user_pool.user_pool_id)
         if database_secret is None:

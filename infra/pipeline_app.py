@@ -8,12 +8,13 @@ from asset_staging import prepare_frontend_dist
 
 prepare_frontend_dist(Path(__file__).resolve().parents[1])
 
-from robotic_web_app_infra_stack import RoboticWebAppInfraStack
+from pipeline_stack import RoboticWebAppPipelineStack
+
 
 app = cdk.App()
-RoboticWebAppInfraStack(
+RoboticWebAppPipelineStack(
     app,
-    "RoboticWebAppInfraStack",
+    "RoboticWebAppPipelineStack",
     env=cdk.Environment(
         account=os.getenv("CDK_DEFAULT_ACCOUNT"),
         region=os.getenv("CDK_DEFAULT_REGION", "ap-southeast-2"),
