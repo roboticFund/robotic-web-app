@@ -1,0 +1,15 @@
+{
+  "app": "python app.py",
+  "context": {
+    "appName": "robotic-web-app",
+    "environmentName": "prod",
+    "apiAuthEnabled": false,
+    "databaseName": "robotic_web_app",
+    "databaseSecretArn": "arn:aws:secretsmanager:ap-southeast-2:302826945104:secret:DatabaseSecret3B817195-G9UDaIyjtCU3-xJCZ8H",
+    "vpcId": "vpc-0ce3ebc8b1b320c56",
+    "allowedOrigins": [
+      "http://localhost:4173",
+      "http://localhost:5173"
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+fastapi
+sqlalchemy
+pymysql
+alembic
+python-multipart
+pydantic
+pydantic-settings
+mangum

@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from io import BytesIO
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -11,7 +12,7 @@ from sqlalchemy.orm import sessionmaker
 from urllib.error import HTTPError
 
 from app import crud
-from app.core.config import settings
+from app.core.config import Settings, database_url_from_secret_payload, settings
 from app.core.github import (
     GitHubIntegrationError,
     derive_parameter_summary,
@@ -68,6 +69,36 @@ class BackendSmokeTests(unittest.TestCase):
 
         self.assertEqual(model.code, "algo-17")
         self.assertEqual(model.instrument, "GOLD")
+
+    def test_settings_parse_comma_separated_cors_origins(self):
+        with patch.dict(
+            os.environ,
+            {"CORS_ORIGINS": "https://app.example.com,http://localhost:5173"},
+        ):
+            parsed_settings = Settings(_env_file=None)
+
+        self.assertEqual(
+            parsed_settings.cors_origins,
+            ["https://app.example.com", "http://localhost:5173"],
+        )
+
+    def test_standard_mysql_rds_secret_builds_database_url(self):
+        database_url = database_url_from_secret_payload(
+            {
+                "engine": "mysql",
+                "host": "database.example.com",
+                "port": 3306,
+                "username": "app-user",
+                "password": "p@ss:/word",
+            },
+            database_name="robotic_web_app",
+        )
+
+        self.assertEqual(
+            database_url,
+            "mysql+pymysql://app-user:p%40ss%3A%2Fword"
+            "@database.example.com:3306/robotic_web_app",
+        )
 
     def test_upload_metadata_is_sanitized_and_rejects_machine_paths(self):
         upload = UploadRequest(

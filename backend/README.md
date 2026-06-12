@@ -34,6 +34,8 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 - If `S3_BUCKET` is configured, uploads use AWS S3 presigned URLs.
 - If `S3_BUCKET` is empty, the backend stores uploaded files under `storage/`.
+- In AWS, set `DATABASE_SECRET_ARN` to read `DATABASE_URL` from Secrets Manager.
+- Set `CORS_ORIGINS` to a comma-separated list of allowed frontend origins.
 - `MAX_UPLOAD_BYTES` defaults to 250 MB.
 - Uploaded filenames are normalized to basenames, and artifact keys must stay under `training-results/`.
 
