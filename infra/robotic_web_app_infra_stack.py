@@ -215,6 +215,13 @@ function handler(event) {
         database_secret_name = _context_string(self, "databaseSecretName")
         database_secret_arn = _context_string(self, "databaseSecretArn")
         database_name = _context_string(self, "databaseName")
+        github_token_secret_arn = _context_string(self, "githubTokenSecretArn")
+        github_repo_owner = _context_string(self, "githubRepoOwner")
+        github_repo_name = _context_string(self, "githubRepoName")
+        github_parameter_path_template = _context_string(
+            self,
+            "githubParameterPathTemplate",
+        )
         database_secret = None
         if database_secret_arn:
             database_secret = secretsmanager.Secret.from_secret_complete_arn(
@@ -228,6 +235,13 @@ function handler(event) {
                 "DatabaseSecret",
                 database_secret_name,
             )
+        github_token_secret = None
+        if github_token_secret_arn:
+            github_token_secret = secretsmanager.Secret.from_secret_complete_arn(
+                self,
+                "GitHubTokenSecret",
+                github_token_secret_arn,
+            )
 
         backend_environment = {
             "AUTO_CREATE_SQLITE_TABLES": "false",
@@ -239,6 +253,18 @@ function handler(event) {
             backend_environment["DATABASE_SECRET_ARN"] = database_secret.secret_arn
         if database_name:
             backend_environment["DATABASE_NAME"] = database_name
+        if github_token_secret is not None:
+            backend_environment["GITHUB_TOKEN_SECRET_ARN"] = (
+                github_token_secret.secret_arn
+            )
+        if github_repo_owner:
+            backend_environment["GITHUB_REPO_OWNER"] = github_repo_owner
+        if github_repo_name:
+            backend_environment["GITHUB_REPO_NAME"] = github_repo_name
+        if github_parameter_path_template:
+            backend_environment["GITHUB_PARAMETER_PATH_TEMPLATE"] = (
+                github_parameter_path_template
+            )
 
         backend_function_name = f"{resource_prefix}-api"
         backend_log_group = logs.LogGroup(
@@ -293,6 +319,8 @@ function handler(event) {
         artifact_bucket.grant_read_write(backend_function)
         if database_secret is not None:
             database_secret.grant_read(backend_function)
+        if github_token_secret is not None:
+            github_token_secret.grant_read(backend_function)
 
         http_api = apigwv2.HttpApi(
             self,

@@ -80,6 +80,29 @@ def load_database_url_from_secret(
     )
 
 
+def load_github_token_from_secret(secret_id: str, region_name: str) -> str:
+    client = boto3.client("secretsmanager", region_name=region_name)
+    response = client.get_secret_value(SecretId=secret_id)
+    secret_string = response.get("SecretString")
+    if not secret_string:
+        raise ValueError("GitHub token secret must contain a SecretString value")
+
+    try:
+        secret_payload = json.loads(secret_string)
+    except json.JSONDecodeError:
+        return secret_string.strip()
+
+    if isinstance(secret_payload, dict):
+        for key in ("GITHUB_TOKEN", "github_token", "token"):
+            value = secret_payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+    raise ValueError(
+        "GitHub token secret must contain a token string or a GITHUB_TOKEN field"
+    )
+
+
 class Settings(BaseSettings):
     app_name: str = "Robotic Web App API"
     debug: bool = Field(False, env="DEBUG")
@@ -126,6 +149,10 @@ class Settings(BaseSettings):
     aws_secret_access_key: str | None = Field(None, env="AWS_SECRET_ACCESS_KEY")
     aws_session_token: str | None = Field(None, env="AWS_SESSION_TOKEN")
     github_token: str | None = Field(None, env="GITHUB_TOKEN")
+    github_token_secret_arn: str | None = Field(
+        None,
+        env="GITHUB_TOKEN_SECRET_ARN",
+    )
     github_api_base_url: str = Field("https://api.github.com", env="GITHUB_API_BASE_URL")
     github_repo_owner: str | None = Field(None, env="GITHUB_REPO_OWNER")
     github_repo_name: str | None = Field(None, env="GITHUB_REPO_NAME")
@@ -134,6 +161,15 @@ class Settings(BaseSettings):
         "resources/algorithms/{algorithm_code_lower}/algo_params.py",
         env="GITHUB_PARAMETER_PATH_TEMPLATE",
     )
+
+    @model_validator(mode="after")
+    def apply_github_token_secret(self):
+        if self.github_token_secret_arn:
+            self.github_token = load_github_token_from_secret(
+                self.github_token_secret_arn,
+                self.aws_region,
+            )
+        return self
 
     class Config:
         env_file = ENV_FILE

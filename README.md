@@ -102,4 +102,8 @@ If you later add a custom frontend domain, pass it as an allowed origin for S3 a
 
 AWS CodePipeline configuration is defined in `infra/pipeline_stack.py`. Once its GitHub CodeConnections authorization and initial pipeline deployment are complete, every push to `main` runs tests, builds the application, deploys the existing production stack, and performs production smoke checks.
 
+Production access to the private `trade-engine` repository uses the
+`robotic-web-app/prod/github-token` AWS Secrets Manager secret. The token value
+must never be committed; `infra/cdk.json` stores only the secret ARN.
+
 Follow [docs/codepipeline-deployment.md](docs/codepipeline-deployment.md) for the one-time setup and normal deployment workflow.

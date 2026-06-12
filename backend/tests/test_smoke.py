@@ -12,7 +12,12 @@ from sqlalchemy.orm import sessionmaker
 from urllib.error import HTTPError
 
 from app import crud
-from app.core.config import Settings, database_url_from_secret_payload, settings
+from app.core.config import (
+    Settings,
+    database_url_from_secret_payload,
+    load_github_token_from_secret,
+    settings,
+)
 from app.core.github import (
     GitHubIntegrationError,
     derive_parameter_summary,
@@ -99,6 +104,20 @@ class BackendSmokeTests(unittest.TestCase):
             "mysql+pymysql://app-user:p%40ss%3A%2Fword"
             "@database.example.com:3306/robotic_web_app",
         )
+
+    @patch("app.core.config.boto3.client")
+    def test_github_token_loads_from_secrets_manager(self, boto_client):
+        boto_client.return_value.get_secret_value.return_value = {
+            "SecretString": '{"GITHUB_TOKEN":"github-token-value"}',
+        }
+
+        token = load_github_token_from_secret(
+            "arn:aws:secretsmanager:ap-southeast-2:123456789012:secret:github",
+            "ap-southeast-2",
+        )
+
+        self.assertEqual(token, "github-token-value")
+        boto_client.return_value.get_secret_value.assert_called_once()
 
     def test_upload_metadata_is_sanitized_and_rejects_machine_paths(self):
         upload = UploadRequest(

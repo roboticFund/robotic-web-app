@@ -82,6 +82,15 @@ Supported values:
 - `vpcId` - Existing VPC for Lambda, required if RDS is private.
 - `lambdaSecurityGroupIds` - Optional comma-separated existing security groups for Lambda.
 - `apiAuthEnabled` - Set to `true` only after the frontend has a Cognito login/token flow.
+- `githubTokenSecretArn` - Secrets Manager ARN containing the private GitHub repository token.
+- `githubRepoOwner` - Default GitHub owner for algorithm parameter files.
+- `githubRepoName` - Default GitHub repository for algorithm parameter files.
+- `githubParameterPathTemplate` - Repository-relative `algo_params.py` path template.
+
+The production GitHub token is stored in Secrets Manager as
+`robotic-web-app/prod/github-token`. Update that secret when the GitHub token is
+rotated; do not add the token value to `cdk.json` or a committed environment
+file.
 
 ## Database Network Security
 

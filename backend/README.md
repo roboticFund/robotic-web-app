@@ -43,6 +43,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 - Algorithm versions can point at a GitHub repository file with repository owner, repository name, file path, and optional ref.
 - Set `GITHUB_TOKEN` in `.env` when private repositories are needed.
+- In AWS, set `GITHUB_TOKEN_SECRET_ARN` to a Secrets Manager secret containing either the token string or a JSON `GITHUB_TOKEN` field.
 - Set `GITHUB_REPO_OWNER` and `GITHUB_REPO_NAME` in `.env` to use one default algorithm repository for every version.
 - `GITHUB_PARAMETER_PATH_TEMPLATE` defaults to `resources/algorithms/{algorithm_code_lower}/algo_params.py`; version-level paths override this when a file lives somewhere else.
 - Supported template fields include `algorithm_id`, `algorithm_code`, `algorithm_code_lower`, `algorithm_name`, `algorithm_name_lower`, `instrument`, `instrument_lower`, `resolution`, `resolution_lower`, `version_id`, `version_label`, `version_label_lower`, and `git_commit_sha`.

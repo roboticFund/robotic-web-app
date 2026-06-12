@@ -8,7 +8,11 @@
     "databaseSecretArn": "arn:aws:secretsmanager:ap-southeast-2:302826945104:secret:DatabaseSecret3B817195-G9UDaIyjtCU3-xJCZ8H",
     "githubBranch": "main",
     "githubConnectionArn": "arn:aws:codeconnections:ap-southeast-2:302826945104:connection/acbe2646-866f-4b59-9b3d-a59bf7d7bb03",
+    "githubParameterPathTemplate": "resources/algorithms/{algorithm_code_lower}/algo_params.py",
+    "githubRepoName": "trade-engine",
+    "githubRepoOwner": "roboticFund",
     "githubRepository": "roboticFund/robotic-web-app",
+    "githubTokenSecretArn": "arn:aws:secretsmanager:ap-southeast-2:302826945104:secret:robotic-web-app/prod/github-token-DmyOq8",
     "vpcId": "vpc-0ce3ebc8b1b320c56",
     "allowedOrigins": [
       "http://localhost:4173",
