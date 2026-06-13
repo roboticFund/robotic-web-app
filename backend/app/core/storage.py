@@ -3,8 +3,26 @@ from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
 import boto3
+from botocore.config import Config
 
 from app.core.config import settings
+
+
+def create_s3_client():
+    session = boto3.Session(
+        aws_access_key_id=settings.aws_access_key_id,
+        aws_secret_access_key=settings.aws_secret_access_key,
+        aws_session_token=settings.aws_session_token,
+        region_name=settings.aws_region,
+    )
+    return session.client(
+        "s3",
+        endpoint_url=f"https://s3.{settings.aws_region}.amazonaws.com",
+        config=Config(
+            signature_version="s3v4",
+            s3={"addressing_style": "virtual"},
+        ),
+    )
 
 
 def sanitize_file_name(file_name: str) -> str:
@@ -38,13 +56,7 @@ def validate_object_key(object_key: str) -> str:
 def create_presigned_upload(file_name: str, content_type: str) -> dict:
     object_key = build_object_key(file_name)
     if settings.s3_bucket:
-        session = boto3.Session(
-            aws_access_key_id=settings.aws_access_key_id,
-            aws_secret_access_key=settings.aws_secret_access_key,
-            aws_session_token=settings.aws_session_token,
-            region_name=settings.aws_region,
-        )
-        client = session.client("s3")
+        client = create_s3_client()
         upload_url = client.generate_presigned_url(
             ClientMethod="put_object",
             Params={
@@ -76,13 +88,7 @@ def create_presigned_download(object_key: str) -> str:
         raise ValueError("S3 bucket is not configured")
     validated_key = validate_object_key(object_key)
 
-    session = boto3.Session(
-        aws_access_key_id=settings.aws_access_key_id,
-        aws_secret_access_key=settings.aws_secret_access_key,
-        aws_session_token=settings.aws_session_token,
-        region_name=settings.aws_region,
-    )
-    client = session.client("s3")
+    client = create_s3_client()
     return client.generate_presigned_url(
         ClientMethod="get_object",
         Params={

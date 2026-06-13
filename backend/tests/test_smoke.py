@@ -157,6 +157,35 @@ class BackendSmokeTests(unittest.TestCase):
             settings.s3_bucket = previous_bucket
             settings.local_storage_dir = previous_storage_dir
 
+    @patch("app.core.storage.boto3.Session")
+    def test_s3_upload_uses_regional_signature_v4_url(self, boto_session):
+        previous_bucket = settings.s3_bucket
+        previous_region = settings.aws_region
+        client = boto_session.return_value.client.return_value
+        client.generate_presigned_url.return_value = (
+            "https://artifacts.s3.ap-southeast-2.amazonaws.com/upload"
+        )
+        try:
+            settings.s3_bucket = "artifacts"
+            settings.aws_region = "ap-southeast-2"
+
+            upload = create_presigned_upload("stats.csv", "text/csv")
+
+            client_call = boto_session.return_value.client.call_args
+            self.assertEqual(client_call.args, ("s3",))
+            self.assertEqual(
+                client_call.kwargs["endpoint_url"],
+                "https://s3.ap-southeast-2.amazonaws.com",
+            )
+            self.assertEqual(
+                client_call.kwargs["config"].signature_version,
+                "s3v4",
+            )
+            self.assertEqual(upload["storage_type"], "s3")
+        finally:
+            settings.s3_bucket = previous_bucket
+            settings.aws_region = previous_region
+
     def test_trade_engine_metadata_import_drops_paths_and_account_details(self):
         item = AlgorithmMetadataImportItem(
             code="algo-17",
