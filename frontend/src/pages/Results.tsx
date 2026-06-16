@@ -46,6 +46,7 @@ interface TrainingResult {
   linked_versions?: AlgorithmVersionLink[];
   model_id?: number | null;
   run_source: string;
+  comments?: string | null;
   status: string;
   created_at?: string;
   run_started_at?: string | null;
@@ -268,6 +269,7 @@ function Results() {
       String(result.id),
       result.status,
       result.run_source,
+      result.comments ?? "",
       result.is_dashboard_latest ? "dashboard latest" : "",
       versionText,
       artifactText,
@@ -359,7 +361,7 @@ function Results() {
                 setSearch(event.target.value);
                 setPage(0);
               }}
-              placeholder="ID, file, version"
+              placeholder="ID, file, comment"
               className="mt-1 h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-900 shadow-sm focus:border-slate-900 focus:outline-none"
             />
           </label>
@@ -540,6 +542,9 @@ function Results() {
                       </Link>
                       <p className="mt-0.5 whitespace-nowrap text-[11px] text-slate-500">{formatDateTime(result.created_at)}</p>
                       <p className="mt-0.5 max-w-36 truncate text-[11px] text-slate-500" title={result.run_source}>{result.run_source}</p>
+                      {result.comments ? (
+                        <p className="mt-0.5 max-w-44 truncate text-[11px] text-slate-600" title={result.comments}>{result.comments}</p>
+                      ) : null}
                     </td>
                     <td className="min-w-56 px-3 py-2">
                       <div className="flex flex-wrap gap-1">

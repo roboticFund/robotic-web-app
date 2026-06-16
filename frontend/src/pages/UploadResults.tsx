@@ -54,6 +54,7 @@ interface TrainingResult {
   linked_versions?: AlgorithmVersionLink[];
   model_id?: number | null;
   run_source: string;
+  comments?: string | null;
   status: string;
   created_at?: string;
   summary_json: Record<string, unknown>;
@@ -150,6 +151,7 @@ function UploadResults() {
   const [versionSearch, setVersionSearch] = useState("");
   const [selectedModelId, setSelectedModelId] = useState<number | null>(null);
   const [runSource, setRunSource] = useState("offline_upload");
+  const [comments, setComments] = useState("");
   const [status, setStatus] = useState("completed");
   const [summaryJson, setSummaryJson] = useState("{}");
   const [preparedFiles, setPreparedFiles] = useState<PreparedFile[]>([]);
@@ -460,6 +462,7 @@ function UploadResults() {
           algo_version_ids: selectedVersionIds,
           model_id: selectedModelId,
           run_source: runSource,
+          comments: comments.trim() || null,
           status,
           data_from: preparedDateRange.dataFrom,
           data_to: preparedDateRange.dataTo,
@@ -727,6 +730,15 @@ function UploadResults() {
                     <option value="pending">Pending</option>
                     <option value="failed">Failed</option>
                   </select>
+                </label>
+
+                <label className="block lg:col-span-2">
+                  <span className="text-sm font-medium text-slate-700">Comments</span>
+                  <textarea
+                    value={comments}
+                    onChange={(event) => setComments(event.target.value)}
+                    className="mt-2 min-h-24 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-900 focus:outline-none"
+                  />
                 </label>
 
                 <label className="block lg:col-span-2">

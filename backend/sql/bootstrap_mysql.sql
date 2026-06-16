@@ -82,6 +82,7 @@ CREATE TABLE training_results (
     algo_version_id INTEGER NOT NULL,
     model_id INTEGER,
     run_source VARCHAR(64) NOT NULL,
+    comments TEXT,
     status VARCHAR(64) NOT NULL,
     run_started_at DATETIME,
     run_completed_at DATETIME,

@@ -81,6 +81,7 @@ class TrainingResult(Base):
     algo_version_id = Column(Integer, ForeignKey("algorithm_versions.id"), nullable=False)
     model_id = Column(Integer, ForeignKey("training_models.id"), nullable=True)
     run_source = Column(String(64), nullable=False)
+    comments = Column(Text, nullable=True)
     status = Column(String(64), nullable=False, default="pending")
     run_started_at = Column(DateTime, nullable=True)
     run_completed_at = Column(DateTime, nullable=True)

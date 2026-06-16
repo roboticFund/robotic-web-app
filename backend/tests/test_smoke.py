@@ -531,6 +531,7 @@ algo_params = {
                     algo_version_id=version.id,
                     algo_version_ids=[version.id],
                     run_source="offline_upload",
+                    comments="Initial review note",
                     status="completed",
                     summary_json={"total_profit": 10},
                     chart_series_json={},
@@ -564,6 +565,7 @@ algo_params = {
             )
 
             self.assertEqual(updated.id, result.id)
+            self.assertEqual(updated.comments, "Initial review note")
             self.assertEqual(len(updated.artifacts), 2)
             self.assertEqual(updated.summary_json, {"total_profit": 10, "sharpe_ratio": 1.2})
             self.assertEqual(updated.data_from, datetime(2020, 1, 1))
@@ -574,6 +576,7 @@ algo_params = {
                 result.id,
                 TrainingResultUpdate(
                     run_source="manual_correction",
+                    comments="  Needs rerun after source check.  ",
                     status="failed",
                     summary_json={"review_note": "Bad input data"},
                     chart_series_json={"equity": [1, 2, 3]},
@@ -582,9 +585,18 @@ algo_params = {
 
             self.assertEqual(edited.id, result.id)
             self.assertEqual(edited.run_source, "manual_correction")
+            self.assertEqual(edited.comments, "Needs rerun after source check.")
             self.assertEqual(edited.status, "failed")
             self.assertEqual(edited.summary_json, {"review_note": "Bad input data"})
             self.assertEqual(edited.chart_series_json, {"equity": [1, 2, 3]})
+
+            cleared_comments = crud.update_training_result(
+                db,
+                result.id,
+                TrainingResultUpdate(comments=""),
+            )
+
+            self.assertIsNone(cleared_comments.comments)
 
             remaining = crud.delete_training_artifact(db, result.id, updated.artifacts[0].id)
             self.assertEqual(remaining.id, result.id)

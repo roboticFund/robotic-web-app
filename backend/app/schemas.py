@@ -46,6 +46,13 @@ def _normalize_optional_label(value: Optional[str]) -> Optional[str]:
     return normalized or None
 
 
+def _normalize_optional_text(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
 def _validate_github_repository_part(value: Optional[str]) -> Optional[str]:
     normalized = _normalize_optional_label(value)
     if normalized is None:
@@ -273,6 +280,7 @@ class TrainingResultBase(OrmBaseModel):
     algo_version_id: int
     model_id: Optional[int] = None
     run_source: str
+    comments: Optional[str] = None
     status: str
     run_started_at: Optional[datetime] = None
     run_completed_at: Optional[datetime] = None
@@ -289,6 +297,11 @@ class TrainingResultBase(OrmBaseModel):
             raise ValueError(f"status must be one of {sorted(ALLOWED_RESULT_STATUSES)}")
         return value
 
+    @field_validator("comments")
+    @classmethod
+    def normalize_comments(cls, value: Optional[str]) -> Optional[str]:
+        return _normalize_optional_text(value)
+
     @field_validator("s3_prefix")
     @classmethod
     def validate_s3_prefix(cls, value: Optional[str]) -> Optional[str]:
@@ -303,6 +316,7 @@ class TrainingResultCreate(TrainingResultBase):
 class TrainingResultUpdate(BaseModel):
     model_id: Optional[int] = None
     run_source: Optional[str] = None
+    comments: Optional[str] = None
     status: Optional[str] = None
     run_started_at: Optional[datetime] = None
     run_completed_at: Optional[datetime] = None
@@ -327,6 +341,11 @@ class TrainingResultUpdate(BaseModel):
         if not normalized:
             raise ValueError("run_source must not be empty")
         return normalized
+
+    @field_validator("comments")
+    @classmethod
+    def normalize_update_comments(cls, value: Optional[str]) -> Optional[str]:
+        return _normalize_optional_text(value)
 
     @field_validator("status")
     @classmethod
